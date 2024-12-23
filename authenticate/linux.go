@@ -159,7 +159,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	spnegoClient := spnego.SPNEGOClient(krbClient, krbSPN)
 	err = spnegoClient.AcquireCred()
 	if err != nil {
-		log.Println("INFO: Proxy: DoNegotiateProxyAuth: could not acquire spnego client credential: %v", err)
+		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: could not acquire spnego client credential: %v\n", err)
 		return err
 	}
 	securityContext, err := spnegoClient.InitSecContext()
