@@ -30,7 +30,7 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 	basic, _ := regexp.MatchString("BASIC", strings.ToUpper(bestAuth))
 	log.Printf("INFO: Proxy: DoProxyAuth: NTLM,Negotiate,Basic %v,%v,%v\n", ntlm, nego, basic)
 	if ntlm {
-		err = DoNTLMProxyAuth(ctx, req, resp)
+		err = DoNTLMProxyAuth(ctx, req, resp, "NTLM")
 		if err != nil {
 			log.Printf("INFO: Proxy: DoProxyAuth: Match: %v\n", err)
 		}
