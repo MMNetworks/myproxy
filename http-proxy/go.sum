@@ -1,0 +1,4 @@
+github.com/go-httpproxy/httpproxy v0.0.0-20180417134941-6977c68bf38e h1:ZWrG9Qs9xKF9638OVBT9Dd84CduxRWKX1/ZuwDI9e5o=
+github.com/go-httpproxy/httpproxy v0.0.0-20180417134941-6977c68bf38e/go.mod h1:Ftx0ecWwj8tX+5XPIE2KldKlneCsk9xMEaVpNbFRSt4=
+github.com/jbardin/gotrace v0.0.0-20150716171022-9e46e17f8386 h1:e6hi6POUhOXXgFt6/Xfixo1ix5NL6omM+WhHQpd6OKo=
+github.com/jbardin/gotrace v0.0.0-20150716171022-9e46e17f8386/go.mod h1:inbK24M6UBV00Z770qqxFI0qt6Op6fkdgyil+19DjP8=
