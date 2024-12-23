@@ -134,11 +134,13 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Kerberos config error: %v\n", err)
 	}
 	if krbCredentialCache != "" {
-		krbCCache, err := credentials.LoadCCache(krbCredentialCache)
+		var krbCCache *credentials.CCache
+		krbCCache, err = credentials.LoadCCache(krbCredentialCache)
 		if err != nil {
 			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: cloud not load cache: %v\n", err)
+		} else {
+			krbClient, err = client.NewFromCCache(krbCCache, krbConfig, client.DisablePAFXFAST(true))
 		}
-		krbClient, err = client.NewFromCCache(krbCCache, krbConfig, client.DisablePAFXFAST(true))
 	} else {
 		krbClient = client.NewWithPassword(proxyUsername, proxyDomain, proxyPassword, krbConfig, client.DisablePAFXFAST(true))
 		err = krbClient.Login()
