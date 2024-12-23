@@ -181,7 +181,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	if err != nil {
 		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: RoundTrip error(should not happen!): %v\n", err)
 		if negoResp == nil {
-			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: no ntlmresp RoundTrip error: %v\n", err)
+			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: no negoresp RoundTrip error: %v\n", err)
 			return err
 		} else if negoResp.StatusCode != http.StatusProxyAuthRequired {
 			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: RoundTrip error: %v\n", err)
@@ -199,10 +199,10 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> negotiate challenge: '%s'\n", challenge[1])
 		challengeMessage, err := base64.StdEncoding.DecodeString(challenge[1])
 		if err != nil {
-			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> Could not base64 decode the NTLM challenge: %s\n", err)
+			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> Could not base64 decode the Negotiate challenge: %s\n", err)
 			return err
 		}
-		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> negotiate authorizatio '%s'\n", base64.StdEncoding.EncodeToString(challengeMessage))
+		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> negotiate authorization '%s'\n", base64.StdEncoding.EncodeToString(challengeMessage))
 		//	authenticateMessage, err := nego.ProcessChallenge(challengeMessage, proxyUsername, proxyPassword, false)
 		//	if err != nil {
 		//		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> Could not process the negotiate challenge: %s\n", err)
@@ -212,7 +212,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		//	r.Header.Del("Proxy-Authorization")
 		//	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
 		//	negoResp, err = ctx.Prx.Rt.RoundTrip(r)
-		return errors.New("additional negotiate reound required")
+		return errors.New("additional negotiate round required")
 		//	} else if negoResp.StatusCode != http.StatusOK {
 		//		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Failed %d\n",negoResp.StatusCode)
 		//		return errors.New("no negotiate OK received")
