@@ -3,23 +3,23 @@
 package authenticate
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
-	"log"
-	"net/http"
-	"encoding/base64"
 	"github.com/Azure/go-ntlmssp"
-        "github.com/jcmturner/gokrb5/v8/client"
-        "github.com/jcmturner/gokrb5/v8/config"
-        "github.com/jcmturner/gokrb5/v8/credentials"
-        "github.com/jcmturner/gokrb5/v8/krberror"
-        "github.com/jcmturner/gokrb5/v8/spnego"
+	"github.com/jcmturner/gokrb5/v8/client"
+	"github.com/jcmturner/gokrb5/v8/config"
+	"github.com/jcmturner/gokrb5/v8/credentials"
+	"github.com/jcmturner/gokrb5/v8/krberror"
+	"github.com/jcmturner/gokrb5/v8/spnego"
+	"log"
 	"myproxy/http-proxy"
 	"myproxy/readconfig"
+	"net/http"
 	"strings"
 )
 
-func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
+func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
 	var r = req
 	var err error
 	// NTLM Step 1: Send Negotiate Message
@@ -32,7 +32,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 		log.Printf("INFO: Proxy: DoNTLMProxyAuth: Could not negotiate domain '%s': %s\n", proxyDomain, err)
 		return err
 	}
-	r.Header.Add("Proxy-Authorization", fmt.Sprintf("NTLM %s", base64.StdEncoding.EncodeToString(negotiateMessage)))
+	r.Header.Add("Proxy-Authorization", fmt.Sprintf("%s %s", auth, base64.StdEncoding.EncodeToString(negotiateMessage)))
 	ntlmResp, err := ctx.Prx.Rt.RoundTrip(r)
 	if err != nil {
 		log.Printf("INFO: Proxy: DoNTLMProxyAuth: RoundTrip error(should not happen!): %v\n", err)
@@ -69,7 +69,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 	}
 	log.Printf("INFO: Proxy: DoNTLMProxyAuth: ntlm> NTLM authorization: '%s'\n", base64.StdEncoding.EncodeToString(authenticateMessage))
 	r.Header.Del("Proxy-Authorization")
-	r.Header.Add("Proxy-Authorization", fmt.Sprintf("NTLM %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
+	r.Header.Add("Proxy-Authorization", fmt.Sprintf("%s %s", auth, base64.StdEncoding.EncodeToString(authenticateMessage)))
 	ntlmResp, err = ctx.Prx.Rt.RoundTrip(r)
 	if ntlmResp.StatusCode == http.StatusProxyAuthRequired {
 		log.Printf("INFO: Proxy: DoNTLMProxyAuth: Failed\n")
@@ -112,62 +112,70 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	var proxyFQDN string
 	var krbClient *client.Client
 
+	proxy := ctx.UpstreamProxy
 
-        proxy := ctx.UpstreamProxy
-
-        log.Printf("INFO: Proxy: DoNegotiateProxyAuth: proxy: %s\n", proxy)
-        ipos := strings.Index(proxy, ":")
-        if ipos > 0 {
-                proxyFQDN = proxy[0:ipos]
-        } else {
-                proxyFQDN = proxy
-        }
-	// Kerberos 
+	log.Printf("INFO: Proxy: DoNegotiateProxyAuth: proxy: %s\n", proxy)
+	ipos := strings.Index(proxy, ":")
+	if ipos > 0 {
+		proxyFQDN = proxy[0:ipos]
+	} else {
+		proxyFQDN = proxy
+	}
+	// Kerberos
 	krbConfigFile := readconfig.Config.Proxy.KerberosConfig
 	krbCredentialCache := readconfig.Config.Proxy.KerberosCache
 	proxyDomain := readconfig.Config.Proxy.KerberosDomain
 	proxyUsername := readconfig.Config.Proxy.KerberosUser
 	proxyPassword := readconfig.Config.Proxy.KerberosPass
 
-        //adding proxy authentication
-        krbConfig, err := config.Load(krbConfigFile)
-        if err != nil {
-        	log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Kerberos config error: %v\n",err)
-        }
+	//adding proxy authentication
+	krbConfig, err := config.Load(krbConfigFile)
+	if err != nil {
+		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Kerberos config error: %v\n", err)
+	}
 	if krbCredentialCache != "" {
 		krbCCache, err := credentials.LoadCCache(krbCredentialCache)
-        	if err != nil {
-        		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: cloud not load cache: %v\n",err)
-        	}
-		krbClient, err = client.NewClientFromCCache(krbCCache, krbConfig, client.DisablePAFXFAST(true)) 
+		if err != nil {
+			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: cloud not load cache: %v\n", err)
+		}
+		krbClient, err = client.NewFromCCache(krbCCache, krbConfig, client.DisablePAFXFAST(true))
 	} else {
-        	krbClient = client.NewWithPassword(proxyUsername, proxyDomain, proxyPassword, krbConfig, client.DisablePAFXFAST(true))
-        	err = krbClient.Login()
+		krbClient = client.NewWithPassword(proxyUsername, proxyDomain, proxyPassword, krbConfig, client.DisablePAFXFAST(true))
+		err = krbClient.Login()
 	}
-        if err != nil {
-        	log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Kerberos client error: %v\n",err)
-        }
-        krbSPN := "HTTP/" + proxyFQDN
-        spnegoClient := spnego.SPNEGOClient(krbClient, krbSPN)
-        err = spnegoClient.AcquireCred()
-        if err != nil {
-                log.Println("INFO: Proxy: DoNegotiateProxyAuth: could not acquire spnego client credential: %v", err)
-                return err
-        }
-        securityContext, err := spnegoClient.InitSecContext()
-        if err != nil {
-                log.Println("INFO: Proxy: DoNegotiateProxyAuth: could not initialize security context: %v", err)
-                return err
-        }
-        negoAuth, err := securityContext.Marshal()
-        if err != nil {
-                log.Println("INFO: Proxy: DoNegotiateProxyAuth: %v\n",krberror.Errorf(err, krberror.EncodingError, "could not marshal SPNEGO"))
-                return err
-        }
+	if err != nil {
+		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Kerberos client error: %v\n", err)
+		if readconfig.Config.Proxy.NtlmUser != "" && readconfig.Config.Proxy.NtlmPass != "" {
 
-        // fmt.Println(negoAuth)
-        r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString([]byte(negoAuth))))   
-	negoResp, err := ctx.Prx.Rt.RoundTrip(r)	
+			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Try Negotiate / NTLM fallback: %v\n", err)
+			err = DoNTLMProxyAuth(ctx, req, resp, "Negotiate")
+			if err != nil {
+				log.Printf("INFO: DoNegotiateProxyAuth: Negotiate / NTLM fallback failed: %v\n", err)
+			}
+		}
+		return err
+	}
+	krbSPN := "HTTP/" + proxyFQDN
+	spnegoClient := spnego.SPNEGOClient(krbClient, krbSPN)
+	err = spnegoClient.AcquireCred()
+	if err != nil {
+		log.Println("INFO: Proxy: DoNegotiateProxyAuth: could not acquire spnego client credential: %v", err)
+		return err
+	}
+	securityContext, err := spnegoClient.InitSecContext()
+	if err != nil {
+		log.Println("INFO: Proxy: DoNegotiateProxyAuth: could not initialize security context: %v", err)
+		return err
+	}
+	negoAuth, err := securityContext.Marshal()
+	if err != nil {
+		log.Println("INFO: Proxy: DoNegotiateProxyAuth: %v\n", krberror.Errorf(err, krberror.EncodingError, "could not marshal SPNEGO"))
+		return err
+	}
+
+	// fmt.Println(negoAuth)
+	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString([]byte(negoAuth))))
+	negoResp, err := ctx.Prx.Rt.RoundTrip(r)
 	if err != nil {
 		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: RoundTrip error(should not happen!): %v\n", err)
 		if negoResp == nil {
@@ -181,7 +189,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	if negoResp.StatusCode == http.StatusProxyAuthRequired {
 		// need really a loop, but unlikely to happen in real life
 		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Auth next %s\n", negoResp.Header.Get("Proxy-Authenticate"))
-        	challenge := strings.Split(negoResp.Header.Get("Proxy-Authenticate"), " ")
+		challenge := strings.Split(negoResp.Header.Get("Proxy-Authenticate"), " ")
 		if len(challenge) < 2 {
 			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> The proxy did not return an negotiate challenge, got: '%s'\n", negoResp.Header.Get("Proxy-Authenticate"))
 			return errors.New("no Negotiate challenge received")
@@ -192,20 +200,20 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 			log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> Could not base64 decode the NTLM challenge: %s\n", err)
 			return err
 		}
-		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> negotiate authorizatio '%s'\n",base64.StdEncoding.EncodeToString(challengeMessage))
-//	authenticateMessage, err := nego.ProcessChallenge(challengeMessage, proxyUsername, proxyPassword, false)
-//	if err != nil {
-//		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> Could not process the negotiate challenge: %s\n", err)
-//		return err
-//	}
-//	log.Printf("INFO: Proxy: DoNegotiateProxyAuth: ntlm> negotiate authorization: '%s'\n", base64.StdEncoding.EncodeToString(authenticateMessage))
-//	r.Header.Del("Proxy-Authorization")
-//	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
-//	negoResp, err = ctx.Prx.Rt.RoundTrip(r)
+		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> negotiate authorizatio '%s'\n", base64.StdEncoding.EncodeToString(challengeMessage))
+		//	authenticateMessage, err := nego.ProcessChallenge(challengeMessage, proxyUsername, proxyPassword, false)
+		//	if err != nil {
+		//		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: nego> Could not process the negotiate challenge: %s\n", err)
+		//		return err
+		//	}
+		//	log.Printf("INFO: Proxy: DoNegotiateProxyAuth: ntlm> negotiate authorization: '%s'\n", base64.StdEncoding.EncodeToString(authenticateMessage))
+		//	r.Header.Del("Proxy-Authorization")
+		//	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
+		//	negoResp, err = ctx.Prx.Rt.RoundTrip(r)
 		return errors.New("additional negotiate reound required")
-//	} else if negoResp.StatusCode != http.StatusOK {
-//		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Failed %d\n",negoResp.StatusCode)
-//		return errors.New("no negotiate OK received")
+		//	} else if negoResp.StatusCode != http.StatusOK {
+		//		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: Failed %d\n",negoResp.StatusCode)
+		//		return errors.New("no negotiate OK received")
 	}
 	for k, v := range resp.Header {
 		log.Printf("INFO: Proxy: DoNegotiateProxyAuth: response header: %s=%s\n", k, v)
