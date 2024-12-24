@@ -1,0 +1,13 @@
+pac:
+  type: "FILE"
+  file: "pac_file"
+proxy:
+  authentication:
+    - negotiate
+    - ntlm
+    - basic
+  NTLMDomain: "TEST"
+  NTLMUser: "testuser"
+  KRBDomain: "TEST.COM"
+  KRBCache: "/tmp/krb5cc_testuser"
+  KRBConfig: "/etc/krb5.conf"
