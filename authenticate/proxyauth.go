@@ -1,7 +1,6 @@
 package authenticate
 
 import (
-	"log"
 	"net/http"
 	"myproxy/http-proxy"
 	"myproxy/readconfig"
