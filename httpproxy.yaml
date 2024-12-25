@@ -1,3 +1,5 @@
+logging:
+  level: "info"
 pac:
   type: "FILE"
   file: "pac_file"
