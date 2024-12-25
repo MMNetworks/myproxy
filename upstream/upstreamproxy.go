@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"github.com/darren/gpac"
 	"io"
-	"log"
 	"math/rand/v2"
 	"myproxy/http-proxy"
 	"myproxy/proxydial"
