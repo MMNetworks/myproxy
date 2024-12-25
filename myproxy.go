@@ -32,7 +32,7 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	}
 	err := upstream.SetProxy(ctx)
 	if err != nil {
-		lggging.Printf("ERROR:","OnAccpet: failed to set proxy: %v\n",err)
+		logging.Printf("ERROR:","OnAccpet: failed to set proxy: %v\n",err)
 	}
 	return false
 }
