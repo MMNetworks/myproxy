@@ -183,7 +183,7 @@ func SetProxy(ctx *httpproxy.Context) (error){
 		logging.Printf("DEBUG","SetProxy: proxySTR: %s\n",proxyStr)
 		proxyURL, err := url.Parse(proxyStr)
 		if err != nil {
-			logging.Printf("ERROR","SetProxy: Could not parse proxy URL %s\n",proxySTR)
+			logging.Printf("ERROR","SetProxy: Could not parse proxy URL %s\n",proxyStr)
 			return err
 		}
 		logging.Printf("DEBUG","SetProxy: URL Scheme: %s\n", ctx.Req.URL.Scheme)
