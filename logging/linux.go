@@ -23,14 +23,14 @@ func Printf(level string, format string, a ...any) (int, error) {
 		switch {
 			case 
 				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO",
+				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO":
 				err = sysLog.Info("INFO: " + message)
 			default:
 		}
 	} else if level == "DEBUG" {
 		switch {
 			case 
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
+				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG":
 				err = sysLog.Debug("DEBUG: " + message)
 			default:
 		}
@@ -39,7 +39,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 			case 
 				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
 				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "WARNING",
+				strings.ToUpper(readconfig.Config.Logging.Level) == "WARNING":
 				err = sysLog.Warning("WARNING: " + message)
 			default:
 		}
