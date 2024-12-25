@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"myproxy/authenticate"
 	"myproxy/http-proxy"
 	"myproxy/logging"
