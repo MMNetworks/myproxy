@@ -12,7 +12,6 @@ import (
 	"github.com/jcmturner/gokrb5/v8/credentials"
 	"github.com/jcmturner/gokrb5/v8/krberror"
 	"github.com/jcmturner/gokrb5/v8/spnego"
-	"log"
 	"myproxy/http-proxy"
 	"myproxy/readconfig"
 	"myproxy/logging"
