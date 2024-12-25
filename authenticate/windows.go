@@ -5,7 +5,6 @@ package authenticate
 import (
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"encoding/base64"
         "github.com/alexbrainman/sspi/ntlm"
