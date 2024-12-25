@@ -5,10 +5,12 @@ import (
 	"flag"
 	"io"
 	"log"
+	"os"
 	"myproxy/authenticate"
 	"myproxy/http-proxy"
 	"myproxy/readconfig"
 	"myproxy/upstream"
+	"myproxy/logging"
 	"net/http"
 	// "github.com/yassinebenaid/godump"
 )
@@ -16,25 +18,28 @@ import (
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
 	// Log errors.
-	log.Printf("ERR: %s: %s [%s]", where, err, opErr)
+	logging.Printf("ERROR","OnError: %s: %s [%s]\n", where, err, opErr)
 	// panic(err)
 }
 
 func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	r *http.Request) bool {
 	// Handle local request has path "/info"
-	log.Printf("INFO: Proxy: OnAccept: %s %s", ctx.Req.Method, ctx.Req.URL.String())
+	logging.Printf("DEBUG","OnAccept: %s %s\n", ctx.Req.Method, ctx.Req.URL.String())
 	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
 		w.Write([]byte("This is go-httpproxy."))
 		return true
 	}
-	upstream.SetProxy(ctx)
+	err := upstream.SetProxy(ctx)
+	if err != nil {
+		lggging.Printf("ERROR:","OnAccpet: failed to set proxy: %v\n",err)
+	}
 	return false
 }
 
 func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
 	// Auth test user.
-	log.Printf("INFO: Proxy: OnAuth: %s %s", ctx.Req.Method, ctx.Req.URL.String())
+	logging.Printf("DEBUG","OnAuth: %s %s\n", ctx.Req.Method, ctx.Req.URL.String())
 	if pass != "" {
 		h := sha256.New()
 		h.Write([]byte(pass))
@@ -51,8 +56,8 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
 	// Apply "Man in the Middle" to all ssl connections. Never change host.
-	log.Printf("INFO: Proxy: OnConnect: %s %s", ctx.Req.Method, ctx.Req.URL.String())
-	log.Printf("INFO: Proxy: OnConnect: Host:%s NewHost:%s", host, newHost)
+	logging.Printf("DEBUG","OnConnect: %s %s\n", ctx.Req.Method, ctx.Req.URL.String())
+	logging.Printf("DEBUG","OnConnect: Host:%s NewHost:%s\n", host, newHost)
 	//      log.Printf("INFO: Proxy: Context: ")
 	//      godump.Dump(ctx)
 	return httpproxy.ConnectProxy, host
@@ -62,17 +67,17 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	resp *http.Response) {
 	// var err error
-	log.Printf("INFO: Proxy: OnRequest: %s %s", req.Method, req.URL.String())
+	logging.Printf("DEBUG","OnRequest: %s %s\n", req.Method, req.URL.String())
 	return
 }
 
 func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	resp *http.Response) {
-	log.Printf("INFO: Proxy: OnResponse: %s %s", ctx.Req.Method, ctx.Req.URL.String())
+	logging.Printf("DEBUG","OnResponse: %s %s\n", ctx.Req.Method, ctx.Req.URL.String())
 	if resp.StatusCode == http.StatusProxyAuthRequired {
 		_, err := io.ReadAll(resp.Body)
 		if err != nil {
-			log.Printf("INFO: Proxy: OnResponse: Could not read response body from response: %s", err)
+			logging.Printf("ERROR","OnResponse: Could not read response body from response: %v\n", err)
 			return
 		}
 		defer resp.Body.Close()
@@ -85,6 +90,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 func main() {
 	// variables declaration
 	var configFilename string
+	var err error
 
 	// flags declaration using flag package
 	flag.StringVar(&configFilename, "c", "httpproxy.yaml", "Specify configuration filename. Default is httpproxy.yaml")
@@ -92,30 +98,35 @@ func main() {
 	flag.Parse() // after declaring flags we need to call it
 
 	// Read Yaml config file
-	readconfig.Config = readconfig.ReadConfig(configFilename)
-	log.Printf("INFO: Proxy: main: PAC.Type: %s\n", readconfig.Config.PAC.Type)
-	log.Printf("INFO: Proxy: main: PAC.URL: %s\n", readconfig.Config.PAC.URL)
-	log.Printf("INFO: Proxy: main: PAC.File: %s\n", readconfig.Config.PAC.File)
-	log.Printf("INFO: Proxy: main: PAC.Proxy: %s\n", readconfig.Config.PAC.Proxy)
-	log.Printf("INFO: Proxy: main: Proxy.Authentication: %v\n", readconfig.Config.Proxy.Authentication)
-	log.Printf("INFO: Proxy: main: Proxy.KRBDomain: %s\n", readconfig.Config.Proxy.KerberosDomain)
-	log.Printf("INFO: Proxy: main: Proxy.KRBConfig: %s\n", readconfig.Config.Proxy.KerberosConfig)
-	log.Printf("INFO: Proxy: main: Proxy.KRBCache: %s\n", readconfig.Config.Proxy.KerberosCache)
-	log.Printf("INFO: Proxy: main: Proxy.KRBUser: %s\n", readconfig.Config.Proxy.KerberosUser)
+	readconfig.Config ,err = readconfig.ReadConfig(configFilename)
+	if err != nil {
+		logging.Printf("ERROR","Main: config read error: %s\n", configFilename)
+		log.Printf("ERROR: Main: config read error: %s\n", configFilename)
+		os.Exit(1)
+	}
+	logging.Printf("INFO","Main: PAC.Type: %s\n", readconfig.Config.PAC.Type)
+	logging.Printf("INFO","Main: PAC.URL: %s\n", readconfig.Config.PAC.URL)
+	logging.Printf("INFO","Main: PAC.File: %s\n", readconfig.Config.PAC.File)
+	logging.Printf("INFO","Main: PAC.Proxy: %s\n", readconfig.Config.PAC.Proxy)
+	logging.Printf("INFO","Main: Proxy.Authentication: %v\n", readconfig.Config.Proxy.Authentication)
+	logging.Printf("INFO","Main: Proxy.KRBDomain: %s\n", readconfig.Config.Proxy.KerberosDomain)
+	logging.Printf("INFO","Main: Proxy.KRBConfig: %s\n", readconfig.Config.Proxy.KerberosConfig)
+	logging.Printf("INFO","Main: Proxy.KRBCache: %s\n", readconfig.Config.Proxy.KerberosCache)
+	logging.Printf("INFO","Main: Proxy.KRBUser: %s\n", readconfig.Config.Proxy.KerberosUser)
 	if readconfig.Config.Proxy.KerberosPass != "" {
-		log.Printf("INFO: Proxy: main: Proxy.KRBPassword: ***\n")
+		logging.Printf("INFO","Main: Proxy.KRBPassword: ***\n")
 	}
-	log.Printf("INFO: Proxy: main: Proxy.NTLMDomain: %s\n", readconfig.Config.Proxy.NtlmDomain)
-	log.Printf("INFO: Proxy: main: Proxy.NTLMUser: %s\n", readconfig.Config.Proxy.NtlmUser)
+	logging.Printf("INFO","Main: Proxy.NTLMDomain: %s\n", readconfig.Config.Proxy.NtlmDomain)
+	logging.Printf("INFO","Main: Proxy.NTLMUser: %s\n", readconfig.Config.Proxy.NtlmUser)
 	if readconfig.Config.Proxy.NtlmPass != "" {
-		log.Printf("INFO: Proxy: main: Proxy.NTLMPassword: ***\n")
+		logging.Printf("INFO","Main: Proxy.NTLMPassword: ***\n")
 	}
-	log.Printf("INFO: Proxy: main: Proxy.BasicUser: %s\n", readconfig.Config.Proxy.BasicUser)
+	logging.Printf("INFO","Main: Proxy.BasicUser: %s\n", readconfig.Config.Proxy.BasicUser)
 	if readconfig.Config.Proxy.BasicPass != "" {
-		log.Printf("INFO: Proxy: main: Proxy.BasicPassword: ***\n")
+		logging.Printf("INFO","Main: Proxy.BasicPassword: ***\n")
 	}
-	log.Printf("INFO: Proxy: main: Proxy.LocalBasicUser: %s\n", readconfig.Config.Proxy.LocalBasicUser)
-	log.Printf("INFO: Proxy: main: Proxy.LocalBasicHash: %s\n", readconfig.Config.Proxy.LocalBasicHash)
+	logging.Printf("INFO","Main: Proxy.LocalBasicUser: %s\n", readconfig.Config.Proxy.LocalBasicUser)
+	logging.Printf("INFO","Main: Proxy.LocalBasicHash: %s\n", readconfig.Config.Proxy.LocalBasicHash)
 
 	// Create a new proxy with default certificate pair.
 	prx, _ := httpproxy.NewProxy()
@@ -144,5 +155,7 @@ func main() {
 	prx.OnResponse = OnResponse
 
 	// Listen...
-	http.ListenAndServe("127.0.0.1:9080", prx)
+	logging.Printf("DEBUG","Main: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
+	listen := readconfig.Config.Listen.IP + ":" +  readconfig.Config.Listen.Port
+	http.ListenAndServe(listen, prx)
 }

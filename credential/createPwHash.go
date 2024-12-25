@@ -18,6 +18,6 @@ func main() {
 	h := sha256.New()
 	h.Write(bytePassword)
 	bs := h.Sum(nil)
-	//fmt.Println(password)
+	// fmt.Println(password)
 	fmt.Printf("\n%x\n", bs)
 }
