@@ -74,7 +74,7 @@ if it doesn't you can start manually with:
  
 systemctl --user start myproxy.service  
 
-P.S. Make sure that each user use a different localhost port.
+P.S. Make sure that each user uses a different localhost port.
 
 ## Usage
 
