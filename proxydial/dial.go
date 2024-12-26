@@ -45,11 +45,11 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		// Overwrite upstream Proxy
 		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			Dial: func(network, addr string) (net.Conn, error) {
-				logging.Printf("ERROR","PrxDial: Transport Dial: %v\n", c2s(conn))
+				logging.Printf("DEBUG","PrxDial: Transport Dial: %v\n", c2s(conn))
 				return conn, err
 			},
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				logging.Printf("ERROR","PrxDial: Transport DialContext: %v\n", c2s(conn))
+				logging.Printf("DEBUG","PrxDial: Transport DialContext: %v\n", c2s(conn))
 				return conn, err
 			},
 		}
