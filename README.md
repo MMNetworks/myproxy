@@ -37,7 +37,7 @@ Create a myproxy.services file in $HOME/.config/systemd/user
 
 ```sh
 [Unit]
-Description=Script Daemon for myproxy User Services
+Description=Daemon for myproxy User Services
 
 [Service]
 Type=simple
