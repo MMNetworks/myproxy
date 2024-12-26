@@ -9,6 +9,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"strings"
 )
 
 var Config *Schema
@@ -27,6 +28,7 @@ type Listen struct {
 }
 type Logging struct {
 	Level string `yaml:"level"`
+	File  string `yaml:"file"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
@@ -60,7 +62,6 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		log.Printf("ERROR: Readconfig: %v\n",err)
 		return nil, err
 	}
-
 	defer file.Close()
 
 	decoder := yaml.NewDecoder(file)
@@ -72,33 +73,61 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		log.Printf("ERROR: ReadConfig: decoding file: %v\n",err)
 		return nil, err
 	}
+	if configOut.Logging.File == "" {
+		configOut.Logging.File = "stdout"
+	} else if strings.ToUpper(configOut.Logging.File) != "STDOUT" {
+		var logFile *os.File
+		fileInfo, err := os.Stat(configOut.Logging.File)
+		if err == nil || ! errors.Is(err, os.ErrNotExist) {
+			fileMode := fileInfo.Mode()
+			if fileMode.IsRegular() {
+				logFile, err = os.OpenFile(configOut.Logging.File, os.O_RDWR, 0600)
+				if err != nil {
+					log.Printf("ERROR: ReadConfig: logfile %s not writeable\n", configOut.Logging.File)
+					return nil, err
+				} else {
+					log.Printf("WARNING: ReadConfig: logfile %s exists. Will append \n", configOut.Logging.File)
+				}
+				defer logFile.Close()
+			}
+		} else {
+			logFile, err = os.OpenFile(configOut.Logging.File, os.O_RDWR|os.O_CREATE, 0600)
+			if err != nil {
+				log.Printf("ERROR: ReadConfig: logfile %s cannot be created\n", configOut.Logging.File)
+				return nil, err
+			} else {
+				log.Printf("INFO: ReadConfig: logfile %s created.\n", configOut.Logging.File)
+			}
+			defer logFile.Close()
+		}
+	}
 	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" {
-		log.Printf("ERROR: ReadConfig: reading type field: %s\n", configOut.PAC.Type)
+		log.Printf("ERROR: ReadConfig: reading PAC type field: %s\n", configOut.PAC.Type)
 		log.Printf("ERROR: ReadConfig: only FILE and URL supported\n")
 		return nil, err
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File == "" {
-		log.Printf("ERROR: ReadConfig: reading type file: %s\n", configOut.PAC.File)
+		log.Printf("ERROR: ReadConfig: reading PAC type FILE: %s\n", configOut.PAC.File)
 		log.Printf("ERROR: ReadConfig: FILE needs a filename\n")
 		return nil, err
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File != "" {
 		_, err := os.Stat(configOut.PAC.File)
 		if errors.Is(err, os.ErrNotExist) ||  err != nil {
-			log.Printf("ERROR: ReadConfig: Can not read pac file %s\n",configOut.PAC.File)
+			log.Printf("ERROR: ReadConfig: Can not read PAC file %s\n",configOut.PAC.File)
 			return nil, err
 		}
 	}
 
 	if configOut.PAC.Type == "URL" && configOut.PAC.URL == "" {
-		log.Printf("ERROR: ReadConfig: reading type url: %s\n", configOut.PAC.URL)
+		log.Printf("ERROR: ReadConfig: reading PAC type URL: %s\n", configOut.PAC.URL)
 		log.Printf("ERROR: ReadConfig: URL needs a url\n")
 		return nil, err
 	}
 	for i, v := range configOut.Proxy.Authentication {
 		if v != "ntlm" && v != "negotiate" && v != "basic" {
 			log.Printf("ERROR: ReadConfig: reading authentication field: %d:%s\n", i+1, v)
-			log.Printf("ERROR: ReadConfig: only ntln,negotiate and basic supported\n")
+			log.Printf("ERROR: ReadConfig: only ntln,negotiate and basic are supported\n")
 			return nil, err
 		}
 	}
@@ -135,7 +164,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
                 	configOut.Proxy.KerberosPass = string(bytePassword)
         	}
 	} else {
-		log.Printf("INFO: ReadConfig: NTLM and Kerberos details are not required with SSPI\n")
+		log.Printf("INFO: ReadConfig: NTLM and Kerberos details are not used with SSPI\n")
 	}
 
         if configOut.Proxy.BasicUser != "" && configOut.Proxy.BasicPass == "" {
