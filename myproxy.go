@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io"
 	"log"
+	"fmt"
 	"os"
 	"myproxy/authenticate"
 	"myproxy/http-proxy"
@@ -41,10 +42,12 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 	// Auth test user.
 	logging.Printf("DEBUG","OnAuth: %s %s\n", ctx.Req.Method, ctx.Req.URL.String())
 	if pass != "" {
-		h := sha256.New()
-		h.Write([]byte(pass))
-		pbs := string(h.Sum(nil))
-		if user == readconfig.Config.Proxy.LocalBasicUser && pbs == readconfig.Config.Proxy.LocalBasicHash {
+		hash := sha256.New()
+		hash.Write([]byte(pass))
+		hashSum := string(hash.Sum(nil))
+		hexSum := fmt.Sprintf("%x",hashSum)
+		logging.Printf("DEBUG","OnAuth: User: %s Password hash: %s\n", user,hexSum)
+		if user == readconfig.Config.Proxy.LocalBasicUser && hexSum == readconfig.Config.Proxy.LocalBasicHash {
 			return true
 		} else {
 			return false
@@ -100,10 +103,11 @@ func main() {
 	// Read Yaml config file
 	readconfig.Config ,err = readconfig.ReadConfig(configFilename)
 	if err != nil {
-		logging.Printf("ERROR","Main: config read error: %s\n", configFilename)
 		log.Printf("ERROR: Main: config read error: %s\n", configFilename)
 		os.Exit(1)
 	}
+	logging.Printf("INFO","Main: Logging.Level: %s\n", readconfig.Config.Logging.Level)
+	logging.Printf("INFO","Main: Logging.File: %s\n", readconfig.Config.Logging.File)
 	logging.Printf("INFO","Main: PAC.Type: %s\n", readconfig.Config.PAC.Type)
 	logging.Printf("INFO","Main: PAC.URL: %s\n", readconfig.Config.PAC.URL)
 	logging.Printf("INFO","Main: PAC.File: %s\n", readconfig.Config.PAC.File)
