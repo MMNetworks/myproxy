@@ -41,7 +41,7 @@ Configuration is stored in a YAML file and can be supplied with a -c argument
 </ul>
 <li>proxy:</li>
 <ul>
-<li>settings fro upstream proxy. List of supported authentication methods in order of preference</li>
+<li>settings for upstream proxy. List of supported authentication methods in order of preference</li>
 <li>LocalBasicUser and LocalBasicHash is used to authenticate to this proxy. Hash is created by createPwHash</li>
 </ul>
 </ul>
