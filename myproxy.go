@@ -96,7 +96,7 @@ func main() {
 	var err error
 
 	// flags declaration using flag package
-	flag.StringVar(&configFilename, "c", "httpproxy.yaml", "Specify configuration filename. Default is httpproxy.yaml")
+	flag.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename. Default is myproxy.yaml")
 
 	flag.Parse() // after declaring flags we need to call it
 
