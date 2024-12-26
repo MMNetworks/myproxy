@@ -16,7 +16,7 @@ myproxy can read user passwords during startup instead of reading from Yaml file
  
 It logs to either stdout, a logfile, syslog(Linux) or event log(Windows).
 
-On a multiuser system proxy Basic authentication is supported ( should only be used when listening on localhost ).
+On a multiuser system proxy Basic authentication is supported to limit access to myproxy ( should only be used when listening on localhost ).
 
 ## Installing
 
