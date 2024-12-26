@@ -65,7 +65,12 @@ Copy the PAC file into $HOME/.config/myproxy/conf if used
 Run:
   
 systemctl --user daemon-reload  
-systemctl --user enable myproxy.service  
+systemctl --user enable myproxy.service 
+
+The proxy should start when the user logs into the system  
+
+if it doesn't you can start manually with:  
+ 
 systemctl --user start myproxy.service  
 
 
