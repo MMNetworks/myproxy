@@ -12,7 +12,7 @@ On Windows it will use the SSPI interface for upstream proxy Negotiate and NTLM 
 
 The proxy also supports upstrem proxy Basic authentication on Linux and Windows.
 
-myproxy can read password during startup instead of reading from Yaml file.
+myproxy can read user passwords during startup instead of reading from Yaml file.
  
 It logs to either stdout, a logfile, syslog(Linux) or event log(Windows).
 
