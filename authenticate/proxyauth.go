@@ -1,6 +1,8 @@
 package authenticate
 
 import (
+	"encoding/base64"
+	"fmt"
 	"net/http"
 	"myproxy/http-proxy"
 	"myproxy/readconfig"
@@ -55,5 +57,51 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 }
 
 func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
+        var r = req
+        var err error
+        
+        proxyUsername := readconfig.Config.Proxy.BasicUser
+        proxyPassword := readconfig.Config.Proxy.BasicPass
+	proxyAuth := proxyUsername + ":" + proxyPassword
+	logging.Printf("DEBUG","DoBasicProxyAuth: encoded string: %s\n", base64.StdEncoding.EncodeToString([]byte(proxyAuth)))
+
+	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(proxyAuth))))
+        basicResp, err := ctx.Prx.Rt.RoundTrip(r)
+        if err != nil {
+                logging.Printf("ERROR","DoBasicroxyAuth: RoundTrip error(should not happen!): %v\n", err)
+                if basicResp == nil {
+                        logging.Printf("ERROR","DoBasicProxyAuth: no basicresp RoundTrip error: %v\n", err)
+                        return err
+                } else if basicResp.StatusCode != http.StatusProxyAuthRequired {
+                        logging.Printf("ERROR","DoBasicProxyAuth: RoundTrip error: %v\n", err)
+                        return err
+                }
+        }
+        for k, v := range resp.Header {
+                logging.Printf("DEBUG","DoBasicProxyAuth: response header: %s=%s\n", k, v)
+        }
+
+        // Replace original response
+        resp.StatusCode = basicResp.StatusCode
+        resp.Status = basicResp.Status
+        for k, _ := range resp.Header {
+                resp.Header.Del(k)
+                logging.Printf("DEBUG","DoBasicProxyAuth: delete header %s\n", k)
+        }
+        for k, v := range basicResp.Header {
+                for i := 0; i < len(v); i++ {
+                        resp.Header.Add(k, v[i])
+                }
+                logging.Printf("DEBUG","DoBasicProxyAuth: add header %s=%s\n", k, v)
+        }
+        if basicResp.Body != http.NoBody {
+                resp.Body = basicResp.Body
+        } else {
+                resp.Body = http.NoBody
+        }
+        resp.ContentLength = basicResp.ContentLength
+        resp.TLS = basicResp.TLS
+        copy(resp.TransferEncoding, basicResp.TransferEncoding)
+        logging.Printf("DEBUG","DoBasicProxyAuth: Auth done\n")
 	return nil
 }
