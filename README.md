@@ -37,7 +37,7 @@ Configuration is stored in a YAML file and can be supplied with a -c argument
 </ul>
 <li>pac:</li>
 <ul>
-<li>setting for pac file. Reading from URL or FILE. Supports a proxy of PAC file is behind a proxy</li>
+<li>setting for pac file. Reading from URL or FILE. Supports a proxy if PAC file is behind a proxy</li>
 </ul>
 <li>proxy:</li>
 <ul>
