@@ -58,6 +58,7 @@ $HOME/.config/myproxy/bin
 $HOME/.config/myproxy/log  
 $HOME/.config/myproxy/conf  
 
+Copy the myproxy binary file into $HOME/.config/myproxy/bin
 Copy the myproxy YAML config file into $HOME/.config/myproxy/conf  
 Make the YAML file only accessible by the user if password are kept in it  
 Copy the PAC file into $HOME/.config/myproxy/conf if used  
