@@ -56,7 +56,7 @@ pac:
   type: "FILE"
   url: "http://pac.com/pac_file"
   file: "pac_file"
-  proxy: "http://proxy,test.com:3128"
+  proxy: "http://proxy.test.com:3128"
 proxy:
   authentication:
     - negotiate
