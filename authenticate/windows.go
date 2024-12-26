@@ -131,7 +131,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
     	defer sspiCred.Release()
 
 	servicePrincipalName := "HTTP/" + proxyFQDN + "@" + proxyDomain
-        logging.Printf("DEBUg","DoNegotiateProxyAuth: serviceprincipalname: %s\n", servicePrincipalName)
+        logging.Printf("DEBUG","DoNegotiateProxyAuth: serviceprincipalname: %s\n", servicePrincipalName)
 	securityContext, negoToken, err := negotiate.NewClientContext(sspiCred,servicePrincipalName)
 	if err != nil {
         	fmt.Printf("ERROR","DoNegotiateProxyAuth: Failed to initialize security context: %v\n", err)
