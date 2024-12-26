@@ -8,13 +8,15 @@ On Linux it can read a user's Kerberos cache file ( FILE: format only for now ) 
 
 On Linux it can read a user's NTLM credentials for upstream proxy NTLM authentication.
 
-On Windows it will use the SSPI interface for upstream proxy Negotiate and NTLM authentication
+On Windows it will use the SSPI interface for upstream proxy Negotiate and NTLM authentication.
 
-The proxy also supports upstrem proxy Basic authentication on Linux and Windows
+The proxy also supports upstrem proxy Basic authentication on Linux and Windows.
+
+myproxy can read password during startup instead of reading from Yaml file.
  
-It logs to either stdout, a logfile, syslog(Linux) or event log(Windows)
+It logs to either stdout, a logfile, syslog(Linux) or event log(Windows).
 
-On a multiuser system proxy Basic authentication is supported ( should only be used when listening on localhost ) 
+On a multiuser system proxy Basic authentication is supported ( should only be used when listening on localhost ).
 
 ## Installing
 
