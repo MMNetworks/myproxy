@@ -30,13 +30,21 @@ go build myproxy.go
 
 Configuration is stored in a YAML file and can be supplied with a -c argument  
 
-* logging: 
-setting for proxy logging. Default stdout and info level  
-* pac:
- setting for pac file. Reading from URL or FILE. Supports a proxy of PAC file is behind a proxy  
-* proxy: 
-settings fro upstream proxy. List of supported authentication methods in order of preference  
-LocalBasicUser and LocalBasicHash is used to authenticate to this proxy. Hash is created by createPwHash  
+<ul>
+<li>logging:</li>
+<ul>
+<li>setting for proxy logging. Default stdout and info level</li>
+</ul>
+<li>pac:</li>
+<ul>
+<li>setting for pac file. Reading from URL or FILE. Supports a proxy of PAC file is behind a proxy</li>
+</ul>
+<li>proxy:</li>
+<ul>
+<li>settings fro upstream proxy. List of supported authentication methods in order of preference</li>
+<li>LocalBasicUser and LocalBasicHash is used to authenticate to this proxy. Hash is created by createPwHash</li>
+</ul>
+</ul>
 
 ## YAML File format
 
