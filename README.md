@@ -19,7 +19,7 @@ On a multiuser system proxy Basic authentication is supported ( should only be u
 Configuration is stored in a YAML file and can be supplied with a -c argument
 
 logging:    setting for proxy logging. Default stdout and info level
-pac:        setting for pac file. Reading from URL or FILE. 
+pac:        setting for pac file. Reading from URL or FILE. Supports a proxy of PAC file is behind a proxy.
 proxy:      settings fro upstream proxy. List of supported authentication methods in order of preference
             LocalBasicUser and LocalBasicHash is used to authenticate to this proxy. Hash is created by createPwHash
 
@@ -32,6 +32,7 @@ pac:
   type: "FILE"
   url: "http://pac.com/pac_file"
   file: "pac_file"
+  proxy: "http://proxy,test.com:3128"
 proxy:
   authentication:
     - negotiate
