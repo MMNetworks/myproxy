@@ -4,15 +4,15 @@ This is a proxy intended to be run in a users context to read user credentials f
 
 It can read a Proxy Auto-Configuration file from local disk or a Web Server to determine the upstrem proxy or go direct.
 
-On Linux it can read a user's Kerberos cache file ( FILE: format only for now ) for upstream proxy Negotiate authentication. 
+On Linux a user's Kerberos credentials can be provided or myproxy can read a user's Kerberos cache file ( FILE: format only for now ) for upstream proxy Negotiate authentication. 
 
-On Linux it can read a user's NTLM credentials for upstream proxy NTLM authentication.
+On Linux a user's NTLM credentials can be provided for upstream proxy NTLM authentication.
 
-On Windows it will use the SSPI interface for upstream proxy Negotiate and NTLM authentication.
+On Windows myproxy will use the SSPI interface i.e. no need to provide credentials for upstream proxy Negotiate and NTLM authentication.
 
-The proxy also supports upstrem proxy Basic authentication on Linux and Windows.
+myproxy also supports upstrem proxy Basic authentication on Linux and Windows.
 
-myproxy can read user passwords during startup instead of reading from Yaml file.
+myproxy can read user passwords during startup instead of reading from YAML file.
  
 It logs to either stdout, a logfile, syslog(Linux) or event log(Windows).
 
