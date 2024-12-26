@@ -28,6 +28,47 @@ go mod init myproxy
 go mod tidy
 go build myproxy.go
 ```
+### Linux
+
+There are multiple ways to run myproxy. One option is to run it under systemd.  
+
+Create a myproxy.services file in $HOME/.config/systemd/user
+
+
+```sh
+[Unit]
+Description=Script Daemon for myproxy User Services
+
+[Service]
+Type=simple
+#User=
+#Group=
+ExecStart=%h/.config/myproxy/bin/myproxy -c %h/.config/myproxy/conf/myproxy.yaml
+Restart=on-failure
+StandardOutput=file:%h/.config/myproxy/log/myproxy_%u.log
+
+[Install]
+WantedBy=default.target
+```
+
+Create the following directory structure:
+
+$HOME/.config/myproxy  
+$HOME/.config/myproxy/bin  
+$HOME/.config/myproxy/log  
+$HOME/.config/myproxy/conf  
+
+Copy the myproxy YAML config file into $HOME/.config/myproxy/conf  
+Make the YAML file only accessible by the user if password are kept in it  
+Copy the PAC file into $HOME/.config/myproxy/conf if used  
+
+Run:
+  
+systemctl --user daemon-reload  
+systemctl --user enable myproxy.service  
+systemctl --user start myproxy.service  
+
+
 ## Usage
 
 Configuration is stored in a YAML file and can be supplied with a -c argument  
