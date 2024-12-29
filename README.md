@@ -76,9 +76,20 @@ systemctl --user start myproxy.service
 
 P.S. Make sure that each user uses a different localhost port.
 
+### Windows
+
+myproxy can be started as a service using the -a option. e.g.
+
+myproxy.exe -a install
+myproxy.exe -a start
+
+The service options are: install, start, stop, pause, continue, status and remove.
+
 ## Usage
 
 Configuration is stored in a YAML file and can be supplied with a -c argument  
+
+When using myproxy as Windows service make sure the file paths are absolute paths.
 
 <ul>
 <li>logging:</li>
