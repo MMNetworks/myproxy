@@ -3,10 +3,10 @@
 package httpproxy
 
 import (
+	"errors"
 	"io"
 	"net"
 	"syscall"
-	"errors"
 )
 
 // Library specific errors.
@@ -46,15 +46,15 @@ func isConnectionClosed(err error) bool {
 	opErr, ok := err.(*net.OpError)
 	if ok {
 		switch {
-			case
-				errors.Is(opErr, net.ErrClosed),
-				errors.Is(opErr, io.EOF),
-				errors.Is(opErr, syscall.ECONNRESET),
-				errors.Is(opErr, syscall.EPROTOTYPE),
-				errors.Is(opErr, syscall.EPIPE):
-				return true
-			default:
-				return false
+		case
+			errors.Is(opErr, net.ErrClosed),
+			errors.Is(opErr, io.EOF),
+			errors.Is(opErr, syscall.ECONNRESET),
+			errors.Is(opErr, syscall.EPROTOTYPE),
+			errors.Is(opErr, syscall.EPIPE):
+			return true
+		default:
+			return false
 		}
 	}
 
@@ -62,8 +62,8 @@ func isConnectionClosed(err error) bool {
 	//	return true
 	//}
 
-	// Do not understand the below - maybe syscall error handling changed. 
-	// e.g. splice: broken pipe error is not seen as EPIPE 
+	// Do not understand the below - maybe syscall error handling changed.
+	// e.g. splice: broken pipe error is not seen as EPIPE
 	// Dump shows
 	// &net.OpError {
 	//   ....
