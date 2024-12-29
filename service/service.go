@@ -2,10 +2,6 @@
 
 package service
 
-import (
-	"sync"
-)
-
 func Service(args []string) {
 
 	runProxy(args[:])
