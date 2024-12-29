@@ -4,7 +4,9 @@ package logging
 
 import (
 	"fmt"
+	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
+	"log"
 	"myproxy/readconfig"
 	"regexp"
 	"strings"
@@ -15,11 +17,24 @@ var alreadyExists bool = false
 func Printf(level string, format string, a ...any) (int, error) {
 	var length int = 0
 	var err error = nil
+	var logFilename string = "STDOUT"
+	var logLevel string = "DEBUG"
 	var loggerName string = "myproxy"
 	var wlog *eventlog.Log
 
+	if readconfig.Config != nil {
+		logFilename = strings.ToUpper(readconfig.Config.Logging.File)
+		logLevel = strings.ToUpper(readconfig.Config.Logging.Level)
+	}
+
+	inService, err := svc.IsWindowsService()
+	if err == nil && inService && logFilename == "STDOUT" {
+		// Cannot log to stdout from service
+		logFilename = "C:\\Temp\\myproxy_stdout.log"
+	}
+
 	message := fmt.Sprintf(format, a...)
-	if strings.ToUpper(readconfig.Config.Logging.File) == "SYSLOG" || strings.ToUpper(readconfig.Config.Logging.File)  == "EVENTLOG" {
+	if logFilename == "SYSLOG" || logFilename == "EVENTLOG" {
 		// Log to local windows eventlog
 		if !alreadyExists {
 			err = eventlog.InstallAsEventCreate(loggerName, eventlog.Info|eventlog.Warning|eventlog.Error)
@@ -40,8 +55,8 @@ func Printf(level string, format string, a ...any) (int, error) {
 		if level == "INFO" {
 			switch {
 			case
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO":
+				logLevel == "DEBUG",
+				logLevel == "INFO":
 				err = wlog.Info(100, "INFO: "+message)
 				length = len("INFO: " + message)
 			default:
@@ -49,17 +64,17 @@ func Printf(level string, format string, a ...any) (int, error) {
 		} else if level == "DEBUG" {
 			switch {
 			case
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG":
-  				err = wlog.Info(700, "DEBUG: "+message)
+				logLevel == "DEBUG":
+				err = wlog.Info(700, "DEBUG: "+message)
 				length = len("DEBUG: " + message)
 			default:
 			}
 		} else if level == "WARNING" {
 			switch {
 			case
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "WARNING":
+				logLevel == "DEBUG",
+				logLevel == "INFO",
+				logLevel == "WARNING":
 				err = wlog.Warning(200, "WARNING: "+message)
 				length = len("WARNING: " + message)
 			default:
@@ -73,7 +88,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 		}
 		wlog.Close()
 	} else {
-                length, err = osPrintf(level, format, a...)
+		length, err = osPrintf(logFilename, level, format, a...)
 	}
 	return length, err
 }
