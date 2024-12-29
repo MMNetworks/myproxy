@@ -1,17 +1,17 @@
 package main
 
 import (
-	"syscall"
 	"crypto/sha256"
 	"fmt"
-        "golang.org/x/term"
+	"golang.org/x/term"
+	"syscall"
 )
 
 func main() {
 	fmt.Print("Enter Password: ")
 	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 	if err != nil {
-		return 
+		return
 	}
 	// password := string(bytePassword)
 
