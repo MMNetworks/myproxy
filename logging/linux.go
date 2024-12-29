@@ -12,9 +12,16 @@ import (
 func Printf(level string, format string, a ...any) (int, error) {
 	var length int = 0
 	var err error = nil
+	var logFilename string = "STDOUT"
+	var logLevel string = "DEBUG"
+
+	if readconfig.Config != nil {
+		logFilename = strings.ToUpper(readconfig.Config.Logging.File)
+		logLevel = strings.ToUpper(readconfig.Config.Logging.Level)
+	}
 
 	message := fmt.Sprintf(format, a...)
-	if strings.ToUpper(readconfig.Config.Logging.File) == "SYSLOG" || strings.ToUpper(readconfig.Config.Logging.File) == "EVENTLOG" {
+	if logFilename == "SYSLOG" || logFilename == "EVENTLOG" {
 		var sysLog *syslog.Writer
 		// Log to local Unix syslog socket
 		// Need to add option to change to udp,tcp, ...
@@ -27,8 +34,8 @@ func Printf(level string, format string, a ...any) (int, error) {
 		if level == "INFO" {
 			switch {
 			case
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO":
+				logLevel == "DEBUG",
+				logLevel == "INFO":
 				err = sysLog.Info("INFO: " + message)
 				length = len("INFO: " + message)
 			default:
@@ -36,7 +43,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 		} else if level == "DEBUG" {
 			switch {
 			case
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG":
+				logLevel == "DEBUG":
 				err = sysLog.Debug("DEBUG: " + message)
 				length = len("DEBUG: " + message)
 			default:
@@ -44,9 +51,9 @@ func Printf(level string, format string, a ...any) (int, error) {
 		} else if level == "WARNING" {
 			switch {
 			case
-				strings.ToUpper(readconfig.Config.Logging.Level) == "DEBUG",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "INFO",
-				strings.ToUpper(readconfig.Config.Logging.Level) == "WARNING":
+				logLevel == "DEBUG",
+				logLevel == "INFO",
+				logLevel == "WARNING":
 				err = sysLog.Warning("WARNING: " + message)
 				length = len("WARNING: " + message)
 			default:
@@ -60,7 +67,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 		}
 		sysLog.Close()
 	} else {
-		length, err = osPrintf(level, format, a...)
+		length, err = osPrintf(logFilename, level, format, a...)
 	}
 	return length, err
 }
