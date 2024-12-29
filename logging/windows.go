@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
-	"log"
 	"myproxy/readconfig"
 	"regexp"
 	"strings"
