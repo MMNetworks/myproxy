@@ -35,8 +35,8 @@ func Service(args []string) {
 	}
 	CommandLine := flag.NewFlagSet("Service", flag.ExitOnError)
 
-	CommandLine.StringVar(&action, "a", "none", "Windows service action to run")
-	CommandLine.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename. Default is myproxy.yaml")
+	CommandLine.StringVar(&action, "a", "none", "Windows service action to run. Options are install, start, stop, pause, continue, status and remove")
+	CommandLine.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename.")
 
 	CommandLine.Parse(args[1:])
 
