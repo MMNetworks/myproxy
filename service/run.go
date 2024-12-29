@@ -99,7 +99,7 @@ func runProxy(args []string) {
 	}
 	CommandLine := flag.NewFlagSet("runProxy", flag.ExitOnError)
 
-	CommandLine.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename. Default is myproxy.yaml")
+	CommandLine.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename.")
 
 	CommandLine.Parse(args[1:])
 
