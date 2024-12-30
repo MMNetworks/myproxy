@@ -80,7 +80,7 @@ P.S. Make sure that each user uses a different localhost port.
 
 myproxy can be started as a service using the -a option. e.g.
 
-myproxy.exe -a install
+myproxy.exe -a install  
 myproxy.exe -a start
 
 The service options are: install, start, autostart, manualstart, stop, pause, continue, status and remove.
