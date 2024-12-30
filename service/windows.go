@@ -77,6 +77,7 @@ func Service(args []string) {
 	case "manualstart":
 		err = updateService(svcName, cmd)
 	case "install":
+		var bytePassword []byte
 		fmt.Printf("Enter User for service %s (This user will be the user to authenticate to upstream proxies if necessary): ", svcName)
 		scanner := bufio.NewScanner(os.Stdin)
 		scanner.Scan()
@@ -89,7 +90,7 @@ func Service(args []string) {
 		fmt.Printf("\n")
 		serviceUser := scanner.Text()
 		fmt.Printf("Enter Password for %s: ", serviceUser)
-		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+		bytePassword, err = term.ReadPassword(int(syscall.Stdin))
 		if err != nil {
 			logging.Printf("ERROR", "Service: Service user password read error: %v\n", err)
 			fmt.Printf("ERROR: Service: Service user password read error: %v\n", err)
