@@ -1,22 +1,22 @@
 # GO myproxy proxy server based on httpproxy library
 
-This is a proxy intended to be run in a users context to read user credentials for passing to upstream proxies. 
+This is a proxy intended to be run in a user's context to ble to pass the user's authentication details to upstream proxies. 
 
-It can read a Proxy Auto-Configuration file from local disk or a Web Server to determine the upstrem proxy or go direct.
+It can read a Proxy Auto-Configuration file from local disk or a Web Server to determine the upstrem proxy or to go direct.
 
 On Linux a user's Kerberos credentials can be provided or myproxy can read a user's Kerberos cache file ( FILE: format only for now ) for upstream proxy Negotiate authentication. 
 
-On Linux a user's NTLM credentials can be provided for upstream proxy NTLM authentication.
+On Linux a user's NTLM credentials can also be provided for upstream proxy NTLM authentication.
 
-On Windows myproxy will use the SSPI interface i.e. no need to provide credentials for upstream proxy Negotiate and NTLM authentication. But if run under a service the credentials will need to be provided for the service to logon with.
+On Windows myproxy will use the SSPI interface i.e. no need to provide credentials for upstream proxy Negotiate and NTLM authentication. But if myproxy is run as a windows service the credentials will need to be provided for the service to logon with.
 
 myproxy also supports upstrem proxy Basic authentication on Linux and Windows.
 
 myproxy can read user passwords during startup instead of reading from YAML file.
  
-It logs to either stdout, a logfile, syslog(Linux) or event log(Windows).
+myproxy logs to either stdout, a logfile, syslog(Linux) or event log(Windows). If run as a Windows service stdout is logged to c:\temp\myproxy_stdout.log.
 
-On a multiuser system proxy Basic authentication is supported to limit access to myproxy ( should only be used when listening on localhost ).
+On a multiuser system mproxy can user proxy Basic authentication to limit access to the myproxy port ( should only be used when listening on localhost ).
 
 ## Installing
 
@@ -85,7 +85,7 @@ myproxy.exe -a start
 
 The service options are: install, start, autostart, manualstart, stop, pause, continue, status and remove.
 
-The install will create the service as manual started service. autostart and manualstart option will toggle this setting.
+The install will create the service as a manual started service. autostart and manualstart options will toggle this setting.
 
 If started manually via the Service UI the start paramters -c \<configfile\> have to be provided.
 
