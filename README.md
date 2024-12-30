@@ -87,7 +87,7 @@ The service options are: install, start, autostart, manualstart, stop, pause, co
 
 The install will create the service as manual started service. autostart and manualstart option will toggle this setting.
 
-If started manually via the Service UI the start paramters -c <configfile> have to be provided.
+If started manually via the Service UI the start paramters -c \<configfile\> have to be provided.
 
 ## Usage
 
