@@ -46,7 +46,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 						newlogFilename = stdoutLog
 					}
 					osPrintf(newlogFilename,"ERROR","Printf: Cannot create eventlog: %v\n",err) 
-					osPrintf(newlogFilename,"INFO","Printf: switsch to %s\n",newlogFilename) 
+					osPrintf(newlogFilename,"INFO","Printf: switch to %s\n",newlogFilename) 
 					if readconfig.Config != nil {
 				                readconfig.Config.Logging.File = newlogFilename
 					}
