@@ -1,6 +1,6 @@
 # GO myproxy proxy server based on httpproxy library
 
-This is a proxy intended to be run in a user's context to ble to pass the user's authentication details to upstream proxies. 
+This is a proxy intended to be run in a user's context to be able to pass the user's authentication details to upstream proxies. 
 
 It can read a Proxy Auto-Configuration file from local disk or a Web Server to determine the upstrem proxy or to go direct.
 
