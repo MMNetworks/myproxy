@@ -27,10 +27,13 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 		}
 	}
 	logging.Printf("DEBUG", "DoProxyAuth: selected authentication method: %s\n", bestAuth)
-	ntlm, _ := regexp.MatchString("NTLM", strings.ToUpper(bestAuth))
-	nego, _ := regexp.MatchString("NEGOTIATE", strings.ToUpper(bestAuth))
-	basic, _ := regexp.MatchString("BASIC", strings.ToUpper(bestAuth))
+	ntlm, _ := regexp.MatchString("NTLM", strings.ToUpper(strings.ToUpper(strings.Join(proxyAuthValues[:], ","))))
+	nego, _ := regexp.MatchString("NEGOTIATE", strings.ToUpper(strings.ToUpper(strings.Join(proxyAuthValues[:], ","))))
+	basic, _ := regexp.MatchString("BASIC", strings.ToUpper(strings.ToUpper(strings.Join(proxyAuthValues[:], ","))))
 	logging.Printf("DEBUG", "DoProxyAuth: Other possible methods: NTLM,Negotiate,Basic %v,%v,%v\n", ntlm, nego, basic)
+	ntlm, _ = regexp.MatchString("NTLM", strings.ToUpper(bestAuth))
+	nego, _ = regexp.MatchString("NEGOTIATE", strings.ToUpper(bestAuth))
+	basic, _ = regexp.MatchString("BASIC", strings.ToUpper(bestAuth))
 	if ntlm {
 		err = DoNTLMProxyAuth(ctx, req, resp, "NTLM")
 		if err != nil {
