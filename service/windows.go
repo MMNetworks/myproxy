@@ -7,15 +7,18 @@
 package service
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
+	"golang.org/x/term"
 	"log"
 	"myproxy/logging"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -69,8 +72,31 @@ func Service(args []string) {
 
 	log.Printf("INFO: Service: run command %s\n", cmd)
 	switch cmd {
+	case "autostart":
+		err = updateService(svcName, cmd)
+	case "manualstart":
+		err = updateService(svcName, cmd)
 	case "install":
-		err = installService(svcName, "myproxy Service", configFilename)
+		fmt.Printf("Enter User for service %s (This user will be the user to authenticate to upstream proxies if necessary): ", svcName)
+		scanner := bufio.NewScanner(os.Stdin)
+		scanner.Scan()
+		err = scanner.Err()
+		if err != nil {
+			logging.Printf("ERROR", "Service: Service user password read error: %v\n", err)
+			fmt.Printf("ERROR: Service: Service user password read error: %v\n", err)
+			return
+		}
+		fmt.Printf("\n")
+		serviceUser := scanner.Text()
+		fmt.Printf("Enter Password for %s: ", serviceUser)
+		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+		if err != nil {
+			logging.Printf("ERROR", "Service: Service user password read error: %v\n", err)
+			fmt.Printf("ERROR: Service: Service user password read error: %v\n", err)
+			return
+		}
+		fmt.Printf("\n")
+		err = installService(svcName, "myproxy Service", serviceUser, string(bytePassword), configFilename)
 	case "remove":
 		err = removeService(svcName)
 	case "start":
@@ -122,7 +148,8 @@ func exePath() (string, error) {
 	return "", err
 }
 
-func installService(name, desc string, configFile string) error {
+func installService(name, desc string, username string, password string, configFile string) error {
+	var serviceConfig mgr.Config
 	exepath, err := exePath()
 	if err != nil {
 		return err
@@ -137,7 +164,36 @@ func installService(name, desc string, configFile string) error {
 		s.Close()
 		return fmt.Errorf("service %s already exists", name)
 	}
-	s, err = m.CreateService(name, exepath, mgr.Config{DisplayName: desc}, "-c", configFile)
+	serviceConfig.DisplayName = desc
+	serviceConfig.Description = "Runs a local web proxy Service"
+	serviceConfig.ServiceStartName = username
+	serviceConfig.Password = password
+	s, err = m.CreateService(name, exepath, serviceConfig, "-c", configFile)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return nil
+}
+
+func updateService(name, config string) error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+	s, err := m.OpenService(name)
+	if err != nil {
+		return fmt.Errorf("service %s is not installed", name)
+	}
+	serviceConfig, err := s.Config()
+	switch {
+	case config == "autostart":
+		serviceConfig.StartType = mgr.StartAutomatic
+	case config == "manualstart":
+		serviceConfig.StartType = mgr.StartManual
+	}
+	err = s.UpdateConfig(serviceConfig)
 	if err != nil {
 		return err
 	}
