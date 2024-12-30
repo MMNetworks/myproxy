@@ -14,6 +14,7 @@ import (
 var alreadyExists bool = false
 
 func Printf(level string, format string, a ...any) (int, error) {
+	const stdoutLog string = "C:\\Temp\\myproxy_stdout.log"
 	var length int = 0
 	var err error = nil
 	var logFilename string = "STDOUT"
@@ -29,7 +30,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 	inService, err := svc.IsWindowsService()
 	if err == nil && inService && logFilename == "STDOUT" {
 		// Cannot log to stdout from service
-		logFilename = "C:\\Temp\\myproxy_stdout.log"
+		logFilename = stdoutLog
 	}
 
 	message := fmt.Sprintf(format, a...)
@@ -40,6 +41,16 @@ func Printf(level string, format string, a ...any) (int, error) {
 			if err != nil {
 				alreadyExists, _ = regexp.MatchString(" registry key already exists", err.Error())
 				if !alreadyExists {
+					var newlogFilename = "STDOUT"
+					if inService {
+						newlogFilename = stdoutLog
+					}
+					osPrintf(newlogFilename,"ERROR","Printf: Cannot create eventlog: %v\n",err) 
+					osPrintf(newlogFilename,"INFO","Printf: switsch to %s\n",newlogFilename) 
+					if readconfig.Config != nil {
+				                readconfig.Config.Logging.File = newlogFilename
+					}
+					osPrintf(logFilename, level, format, a...)
 					return 0, err
 				}
 			}
