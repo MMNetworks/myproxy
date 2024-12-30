@@ -8,7 +8,7 @@ On Linux a user's Kerberos credentials can be provided or myproxy can read a use
 
 On Linux a user's NTLM credentials can be provided for upstream proxy NTLM authentication.
 
-On Windows myproxy will use the SSPI interface i.e. no need to provide credentials for upstream proxy Negotiate and NTLM authentication.
+On Windows myproxy will use the SSPI interface i.e. no need to provide credentials for upstream proxy Negotiate and NTLM authentication. But if run under a service the credentials will need to be provided for the service to logon with.
 
 myproxy also supports upstrem proxy Basic authentication on Linux and Windows.
 
@@ -83,7 +83,11 @@ myproxy can be started as a service using the -a option. e.g.
 myproxy.exe -a install
 myproxy.exe -a start
 
-The service options are: install, start, stop, pause, continue, status and remove.
+The service options are: install, start, autostart, manualstart, stop, pause, continue, status and remove.
+
+The install will create the service as manual started service. autostart and manualstart option will toggle this setting.
+
+If started manually via the Service UI the start paramters -c <configfile> have to be provided.
 
 ## Usage
 
