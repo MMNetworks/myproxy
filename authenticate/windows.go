@@ -110,6 +110,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
 	var r = req
 	var proxyFQDN string
+	var servicePrincipalName string
 
 	proxy := ctx.UpstreamProxy
 
@@ -130,7 +131,11 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	}
 	defer sspiCred.Release()
 
-	servicePrincipalName := "HTTP/" + proxyFQDN + "@" + proxyDomain
+	if proxyDomain == "" {
+		servicePrincipalName = "HTTP/" + proxyFQDN
+	} else {
+		servicePrincipalName = "HTTP/" + proxyFQDN + "@" + proxyDomain
+	}
 	logging.Printf("DEBUG", "DoNegotiateProxyAuth: serviceprincipalname: %s\n", servicePrincipalName)
 	securityContext, negoToken, err := negotiate.NewClientContext(sspiCred, servicePrincipalName)
 	if err != nil {
