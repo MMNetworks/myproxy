@@ -77,34 +77,37 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 			return err
 		} else if basicResp.StatusCode != http.StatusProxyAuthRequired {
 			logging.Printf("ERROR", "DoBasicProxyAuth: RoundTrip error: %v\n", err)
+			overwriteResponse(resp,basicResp)
 			return err
 		}
 	}
-	for k, v := range resp.Header {
-		logging.Printf("DEBUG", "DoBasicProxyAuth: response header: %s=%s\n", k, v)
-	}
 
-	// Replace original response
-	resp.StatusCode = basicResp.StatusCode
-	resp.Status = basicResp.Status
-	for k, _ := range resp.Header {
-		resp.Header.Del(k)
-		logging.Printf("DEBUG", "DoBasicProxyAuth: delete header %s\n", k)
-	}
-	for k, v := range basicResp.Header {
-		for i := 0; i < len(v); i++ {
-			resp.Header.Add(k, v[i])
-		}
-		logging.Printf("DEBUG", "DoBasicProxyAuth: add header %s=%s\n", k, v)
-	}
-	if basicResp.Body != http.NoBody {
-		resp.Body = basicResp.Body
-	} else {
-		resp.Body = http.NoBody
-	}
-	resp.ContentLength = basicResp.ContentLength
-	resp.TLS = basicResp.TLS
-	copy(resp.TransferEncoding, basicResp.TransferEncoding)
+	overwriteResponse(resp,basicResp)
 	logging.Printf("DEBUG", "DoBasicProxyAuth: Auth done\n")
 	return nil
 }
+
+func overwriteResponse(orgResp *http.Response, newResp *http.Response) {
+        // Replace original response
+        orgResp.StatusCode = newResp.StatusCode
+        orgResp.Status = newResp.Status
+        for k, _ := range orgResp.Header {
+                orgResp.Header.Del(k)
+                logging.Printf("DEBUG", "overwriteResponse: delete header %s\n", k)
+        }
+        for k, v := range newResp.Header {
+                for i := 0; i < len(v); i++ {
+                        orgResp.Header.Add(k, v[i])
+                }
+                logging.Printf("DEBUG", "overwriteResponse: add header %s=%s\n", k, v)
+        }
+        if newResp.Body != http.NoBody {
+                orgResp.Body = newResp.Body
+        } else {
+                orgResp.Body = http.NoBody
+        }
+        orgResp.ContentLength = newResp.ContentLength
+        orgResp.TLS = newResp.TLS
+        copy(orgResp.TransferEncoding, newResp.TransferEncoding)
+}
+
