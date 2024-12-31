@@ -150,7 +150,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		logging.Printf("DEBUG", "DoNegotiateProxyAuth: Auth next %s\n", negoResp.Header.Get("Proxy-Authenticate"))
 		challenge := strings.Split(negoResp.Header.Get("Proxy-Authenticate"), " ")
 		if len(challenge) < 2 {
-			logging.Printf("ERROR", "DoNegotiateProxyAuth: nego> The proxy did not return an negotiate challenge, got: '%s'\n", negoResp.Header.Get("Proxy-Authenticate"))
+			logging.Printf("ERROR", "DoNegotiateProxyAuth: nego> The proxy did not return a negotiate challenge, got: '%s'\n", negoResp.Header.Get("Proxy-Authenticate"))
 			overwriteResponse(resp,negoResp)
 			return errors.New("no Negotiate challenge received")
 		}
