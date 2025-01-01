@@ -7,7 +7,7 @@ import (
 	"math/rand/v2"
 	"myproxy/http-proxy"
 	"myproxy/logging"
-	"myproxy/proxydial"
+	"myproxy/upstream/proxydial"
 	"myproxy/readconfig"
 	"net"
 	"net/http"
