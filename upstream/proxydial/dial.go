@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"myproxy/authenticate"
+	"myproxy/upstream/authenticate"
 	"myproxy/http-proxy"
 	"myproxy/logging"
 	"net"
