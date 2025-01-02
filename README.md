@@ -78,7 +78,7 @@ P.S. Make sure that each user uses a different localhost port.
 
 ### Windows
 
-The easiest way is to start myproxy during system startup as the user logged in. e.g. create a shortcut in the start-up directory 
+The easiest way is to start myproxy during system startup when the user logs in. i.e. create a myproxy shortcut in the start-up directory 
 
 ![startup](startup.png)
 
