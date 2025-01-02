@@ -82,7 +82,7 @@ The easiest way is to start myproxy during system startup as the user logged in.
 
 ![startup](startup.png)
 
-myproxy can be started as a service using the -a option. e.g.
+myproxy can also be started as a service using the -a option. e.g.
 
 myproxy.exe -a install  
 myproxy.exe -a start
