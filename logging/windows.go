@@ -23,7 +23,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 	var wlog *eventlog.Log
 
 	if readconfig.Config != nil {
-		logFilename = strings.ToUpper(readconfig.Config.Logging.File)
+		logFilename = readconfig.Config.Logging.File
 		logLevel = strings.ToUpper(readconfig.Config.Logging.Level)
 	}
 
