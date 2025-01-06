@@ -16,7 +16,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 	var logLevel string = "DEBUG"
 
 	if readconfig.Config != nil {
-		logFilename = strings.ToUpper(readconfig.Config.Logging.File)
+		logFilename = readconfig.Config.Logging.File
 		logLevel = strings.ToUpper(readconfig.Config.Logging.Level)
 	}
 
