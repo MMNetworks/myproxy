@@ -118,6 +118,9 @@ When using myproxy as Windows service make sure the file paths are absolute path
 ## YAML File format
 
 ```yaml
+listen:
+  ip: 127.0.0.1
+  port: 9080
 logging:
   level: "debug"
   file: "log_9080"
