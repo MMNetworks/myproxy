@@ -28,13 +28,13 @@ func Printf(level string, format string, a ...any) (int, error) {
 	}
 
 	inService, err := svc.IsWindowsService()
-	if err == nil && inService && logFilename == "STDOUT" {
+	if err == nil && inService && strings.ToUpper(logFilename) == "STDOUT" {
 		// Cannot log to stdout from service
 		logFilename = stdoutLog
 	}
 
 	message := fmt.Sprintf(format, a...)
-	if logFilename == "SYSLOG" || logFilename == "EVENTLOG" {
+	if strings.ToUpper(logFilename) == "SYSLOG" || strings.ToUpper(logFilename) == "EVENTLOG" {
 		// Log to local windows eventlog
 		if !alreadyExists {
 			err = eventlog.InstallAsEventCreate(loggerName, eventlog.Info|eventlog.Warning|eventlog.Error)

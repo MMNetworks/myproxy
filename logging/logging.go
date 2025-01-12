@@ -18,7 +18,7 @@ func osPrintf(logFilename string, level string, format string, a ...any) (int, e
 	}
 
 	message := fmt.Sprintf(format, a...)
-	if logFilename != "STDOUT" && logFilename != "" {
+	if strings.ToUpper(logFilename) != "STDOUT" && logFilename != "" {
 		var logFile *os.File
 		// Log to local Unix file
 		logFile, err = os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)

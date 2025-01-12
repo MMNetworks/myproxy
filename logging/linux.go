@@ -21,7 +21,7 @@ func Printf(level string, format string, a ...any) (int, error) {
 	}
 
 	message := fmt.Sprintf(format, a...)
-	if logFilename == "SYSLOG" || logFilename == "EVENTLOG" {
+	if strings.ToUpper(logFilename) == "SYSLOG" || strings.ToUpper(logFilename) == "EVENTLOG" {
 		var sysLog *syslog.Writer
 		// Log to local Unix syslog socket
 		// Need to add option to change to udp,tcp, ...
