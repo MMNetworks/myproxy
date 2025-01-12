@@ -164,7 +164,10 @@ func runProxy(args []string) {
 	// Listen...
 	logging.Printf("DEBUG", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
 	listen := readconfig.Config.Listen.IP + ":" + readconfig.Config.Listen.Port
-	http.ListenAndServe(listen, prx)
+	err = http.ListenAndServe(listen, prx)
+	if err != nil {
+		logging.Printf("ERROR", "runProxy: ListenAndServer error: %v\n", err)
+	}
 
 	return
 }
