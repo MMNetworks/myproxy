@@ -26,7 +26,7 @@ git clone https://github.com/MMNetworks/myproxy.git
 cd myproxy
 go mod init myproxy
 go mod tidy
-go build myproxy.go
+go build myproxy.go version.go
 ```
 ### Linux
 
