@@ -19,7 +19,7 @@ import (
 )
 
 // reread pac file wait
-const READ_WAIT time.Duration = 600
+const READ_WAIT time.Duration = 600*time.Second
 
 var timeNext time.Time = time.Now()
 var pac *gpac.Parser
