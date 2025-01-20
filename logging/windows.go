@@ -93,6 +93,9 @@ func Printf(level string, format string, a ...any) (int, error) {
 			err = wlog.Error(300, "ERROR: "+message)
 			length = len("ERROR: " + message)
 		} else {
+			err = wlog.Info(500, "ACCESS: "+message)
+			length = len("ACCESS: " + message)
+		} else {
 			err = wlog.Info(500, "UNKNONW: "+message)
 			length = len("UNKNOWN: " + message)
 		}

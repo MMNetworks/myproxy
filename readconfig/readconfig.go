@@ -22,6 +22,7 @@ type PAC struct {
 	File  string `yaml:"file"`
 	URL   string `yaml:"url"`
 	Proxy string `yaml:"proxy"`
+	CacheTime int `yaml:"cachetime"`
 }
 type Listen struct {
 	IP   string `yaml:"ip"`
@@ -30,6 +31,7 @@ type Listen struct {
 type Logging struct {
 	Level string `yaml:"level"`
 	File  string `yaml:"file"`
+	AccessLog string `yaml:"accesslog"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
