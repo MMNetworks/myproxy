@@ -124,6 +124,7 @@ listen:
 logging:
   level: "debug"
   file: "log_9080"
+  accesslog: "access.log"
 pac:
   type: "FILE"
   url: "http://pac.com/pac_file"
