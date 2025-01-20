@@ -69,7 +69,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			logging.Printf("ERROR", "PrxDial: Error reading response from proxy: %v\n", err)
 			return nil, err
 		}
-
+		ctx.AccessLog.EndRecord.Status = resp.Status
 		// godump.Dump(req)
 		if resp.StatusCode == http.StatusProxyAuthRequired {
 			_, err = io.ReadAll(resp.Body)

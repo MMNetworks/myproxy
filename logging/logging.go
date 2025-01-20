@@ -52,6 +52,8 @@ func osPrintf(logFilename string, level string, format string, a ...any) (int, e
 			}
 		} else if level == "ERROR" {
 			length, err = fmt.Fprintf(logFile, "%s ERROR: %s", timeStamp, message)
+		} else if level == "ACCESS" {
+			length, err = fmt.Fprintf(logFile, "%s ACCESS: %s", timeStamp, message)
 		} else {
 			length, err = fmt.Fprintf(logFile, "%s UNKNOWN: %s", timeStamp, message)
 		}
@@ -85,6 +87,8 @@ func osPrintf(logFilename string, level string, format string, a ...any) (int, e
 			}
 		} else if level == "ERROR" {
 			length, err = fmt.Printf("%s ERROR: %s", timeStamp, message)
+		} else if level == "ACCESS" {
+			length, err = fmt.Printf("%s ACCESS: %s", timeStamp, message)
 		} else {
 			length, err = fmt.Printf("%s UNKNOWN: %s", timeStamp, message)
 		}

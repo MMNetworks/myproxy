@@ -7,19 +7,20 @@ import (
 	"math/rand/v2"
 	"myproxy/http-proxy"
 	"myproxy/logging"
-	"myproxy/upstream/proxydial"
 	"myproxy/readconfig"
+	"myproxy/upstream/proxydial"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"context"
 	"time"
 	// "github.com/yassinebenaid/godump"
 )
 
 // reread pac file wait
-const READ_WAIT time.Duration = 600*time.Second
+const READ_WAIT time.Duration = 600 * time.Second
 
 var timeNext time.Time = time.Now()
 var pac *gpac.Parser
@@ -28,10 +29,9 @@ func SetProxy(ctx *httpproxy.Context) error {
 	var err error
 	var buf []byte
 	var transport *http.Transport
-	logging.Printf("DEBUG", "SetProxy: %s %s\n", ctx.Req.Method, ctx.Req.URL.String())
+	logging.Printf("DEBUG", "SetProxy: %s %s\n", ctx.Req.Method, ctx.Req.URL.Redacted())
 
 	if time.Now().Sub(timeNext) >= 0 {
-		logging.Printf("DEBUG", "SetProxy: Next: %s\n", timeNext.Format(time.RFC850))
 		if readconfig.Config.PAC.Type == "URL" {
 			logging.Printf("DEBUG", "SetProxy: use PAC URL: %s\n", readconfig.Config.PAC.URL)
 			var hclient http.Client
@@ -81,7 +81,11 @@ func SetProxy(ctx *httpproxy.Context) error {
 					return err
 				}
 			}
-			timeNext = time.Now().Add(cacheTime)
+			if readconfig.Config.PAC.CacheTime != 0 {
+				timeNext = time.Now().Add(time.Duration(readconfig.Config.PAC.CacheTime) * time.Second)
+			} else {
+				timeNext = time.Now().Add(cacheTime)
+			}
 
 			pResp, err = hclient.Get(readconfig.Config.PAC.URL)
 			if err != nil {
@@ -101,7 +105,11 @@ func SetProxy(ctx *httpproxy.Context) error {
 				logging.Printf("ERROR", "SetProxy: could not read PAC file: %v\n", err)
 				return err
 			}
-			timeNext = time.Now().Add(READ_WAIT)
+			if readconfig.Config.PAC.CacheTime != 0 {
+				timeNext = time.Now().Add(time.Duration(readconfig.Config.PAC.CacheTime) * time.Second)
+			} else {
+				timeNext = time.Now().Add(READ_WAIT)
+			}
 		}
 		pac, err = gpac.New(string(buf))
 		if err != nil {
@@ -125,7 +133,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 		proxyOKList := make([]string, len(ProxyList))
 		var proxyOKCount int = 0
 		for i, v := range ProxyList {
-			logging.Printf("DEBUG", "SetProxy: index: %d, value: %s:%s\n", i, v.Type, v.Address)
+			logging.Printf("DEBUG", "SetProxy: Index: %d, Type: %s Address: %s\n", i+1, v.Type, v.Address)
 			if strings.ToUpper(v.Type) == "DIRECT" {
 				logging.Printf("DEBUG", "SetProxy: DIRECT\n")
 				proxyOKCount = -1
@@ -162,7 +170,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 			proxyFQDN = "DIRECT"
 		}
 	} else {
-		logging.Printf("DEBUG", "SetProxy: index: %d, value: %s:%s\n", 0, ProxyList[0].Type, ProxyList[0].Address)
+		logging.Printf("DEBUG", "SetProxy: Index: %d, Type: %s Address: %s\n", 1, ProxyList[0].Type, ProxyList[0].Address)
 		if strings.ToUpper(ProxyList[0].Type) == "DIRECT" {
 			proxyFQDN = "DIRECT"
 		} else if strings.ToUpper(ProxyList[0].Type) != "PROXY" {
@@ -177,7 +185,6 @@ func SetProxy(ctx *httpproxy.Context) error {
 			}
 		}
 	}
-	logging.Printf("DEBUG", "SetProxy: proxyFQDN:Port: %s:%s\n", proxyFQDN, proxyPort)
 	if proxyFQDN != "" && strings.ToUpper(proxyFQDN) != "DIRECT" {
 		proxyStr := "http://" + proxyFQDN + ":" + proxyPort
 		logging.Printf("DEBUG", "SetProxy: proxySTR: %s\n", proxyStr)
@@ -196,7 +203,32 @@ func SetProxy(ctx *httpproxy.Context) error {
 		ctx.UpstreamProxy = proxyFQDN + ":" + proxyPort
 	} else {
 		logging.Printf("DEBUG", "SetProxy: proxySTR: DIRECT\n")
-		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{}}
+		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
+			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext(dctx, network, addr)
+				if err != nil {
+					return nil, err
+				}
+			        ctx.AccessLog.StartRecord.DestinationIP = conn.RemoteAddr().String()
+        			ctx.AccessLog.EndRecord.DestinationIP = conn.RemoteAddr().String()
+				return conn, nil
+			},
+			Dial: func(network, addr string) (net.Conn, error) {
+				conn, err := (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).Dial(network, addr)
+				if err != nil {
+					return nil, err
+				}
+			        ctx.AccessLog.StartRecord.DestinationIP = conn.RemoteAddr().String()
+        			ctx.AccessLog.EndRecord.DestinationIP = conn.RemoteAddr().String()
+				return conn, nil
+			},
+		}
 		ctx.Prx.Dial = httpproxy.NetDial
 		ctx.UpstreamProxy = ""
 	}
