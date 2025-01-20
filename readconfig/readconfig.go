@@ -116,6 +116,42 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			defer logFile.Close()
 		}
 	}
+	if configOut.Logging.AccessLog == "" {
+		configOut.Logging.AccessLog = "stdout"
+	} else if strings.ToUpper(configOut.Logging.AccessLog) == "SYSLOG" || strings.ToUpper(configOut.Logging.AccessLog) == "EVENTLOG" {
+		configOut.Logging.File = strings.ToUpper(configOut.Logging.AccessLog)
+	} else if strings.ToUpper(configOut.Logging.AccessLog) != "STDOUT" {
+		var logFile *os.File
+		logFilepath, err := filepath.Abs(configOut.Logging.AccessLog)
+		if err != nil {
+			return nil, err
+		}
+		configOut.Logging.AccessLog = logFilepath
+		fileInfo, err := os.Stat(configOut.Logging.AccessLog)
+		if err == nil || !errors.Is(err, os.ErrNotExist) {
+			fileMode := fileInfo.Mode()
+			if fileMode.IsRegular() {
+				logFile, err = os.OpenFile(configOut.Logging.AccessLog, os.O_RDWR, 0600)
+				if err != nil {
+					log.Printf("ERROR: ReadConfig: access logfile %s not writeable\n", configOut.Logging.AccessLog)
+					return nil, err
+				} else {
+					log.Printf("WARNING: ReadConfig: access logfile %s exists. Will append \n", configOut.Logging.AccessLog)
+				}
+				defer logFile.Close()
+			}
+		} else {
+			logFile, err = os.OpenFile(configOut.Logging.AccessLog, os.O_RDWR|os.O_CREATE, 0600)
+			if err != nil {
+				log.Printf("ERROR: ReadConfig: access logfile %s cannot be created\n", configOut.Logging.AccessLog)
+				return nil, err
+			} else {
+				log.Printf("INFO: ReadConfig: access logfile %s created.\n", configOut.Logging.AccessLog)
+			}
+			defer logFile.Close()
+		}
+	}
+
 	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" {
 		log.Printf("ERROR: ReadConfig: reading PAC type field: %s\n", configOut.PAC.Type)
 		log.Printf("ERROR: ReadConfig: only FILE and URL supported\n")
