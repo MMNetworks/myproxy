@@ -111,6 +111,7 @@ func runProxy(args []string) {
 	}
 	logging.Printf("INFO", "runProxy: Logging.Level: %s\n", readconfig.Config.Logging.Level)
 	logging.Printf("INFO", "runProxy: Logging.File: %s\n", readconfig.Config.Logging.File)
+	logging.Printf("INFO", "runProxy: Logging.AccessLog: %s\n", readconfig.Config.Logging.AccessLog)
 	logging.Printf("INFO", "runProxy: PAC.Type: %s\n", readconfig.Config.PAC.Type)
 	logging.Printf("INFO", "runProxy: PAC.URL: %s\n", readconfig.Config.PAC.URL)
 	logging.Printf("INFO", "runProxy: PAC.File: %s\n", readconfig.Config.PAC.File)
