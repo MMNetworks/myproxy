@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"syscall"
+	"myproxy/logging"
 )
 
 // Library specific errors.
@@ -31,15 +32,18 @@ type Error struct {
 
 // NewError returns a new Error.
 func NewError(errString string) *Error {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	return &Error{errString}
 }
 
 // Error implements error interface.
 func (e *Error) Error() string {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	return e.ErrString
 }
 
 func isConnectionClosed(err error) bool {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	if err == nil {
 		return false
 	}

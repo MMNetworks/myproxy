@@ -10,6 +10,7 @@ import (
 )
 
 func AnalyseFirstPacket(packet []byte) (string, string) {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 
 	name, err := analyseAsTLSPacket(packet)
 	if err == nil {
@@ -33,7 +34,7 @@ func AnalyseFirstPacket(packet []byte) (string, string) {
 }
 
 func AnalyseFirstPacketResponse(packet []byte) (string, string) {
-
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 //	name, err := analyseAsTLSPacketResponse(packet)
 //	if err == nil {
 //		return "TLS", "SNI name: "+name
@@ -56,6 +57,7 @@ func AnalyseFirstPacketResponse(packet []byte) (string, string) {
 }
 
 func analyseAsSSHPacket(packet []byte) (string, error){
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isSSH, _ := regexp.MatchString("SSH-\\d\\.\\d.*", string(initialMessage))
 	if isSSH {
@@ -73,6 +75,7 @@ func analyseAsSSHPacket(packet []byte) (string, error){
 
 // Request-Line   = Method SP Request-URI SP HTTP-Version
 func analyseAsHTTPPacket(packet []byte) (string, error){
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isHTTP , _ := regexp.MatchString("[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
 	if isHTTP {
@@ -89,6 +92,7 @@ func analyseAsHTTPPacket(packet []byte) (string, error){
 }
 
 func analyseAsTLSPacket(packet []byte) (string, error){
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	//
 	// Using https://www.agwa.name/blog/post/parsing_tls_client_hello_with_cryptobyte
 	// and https://datatracker.ietf.org/doc/html/rfc6066#section-3 as guidance
@@ -246,6 +250,7 @@ func analyseAsTLSPacket(packet []byte) (string, error){
 }
 
 func analyseAsFTPPacketResponse(packet []byte) (string, error){
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isFTP, _ := regexp.MatchString("(120|220|421).*\\r\\n", string(initialMessage))
 	if isFTP {
@@ -262,6 +267,7 @@ func analyseAsFTPPacketResponse(packet []byte) (string, error){
 }
 
 func analyseAsSSHPacketResponse(packet []byte) (string, error){
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isSSH, _ := regexp.MatchString("SSH-\\d\\.\\d.*", string(initialMessage))
 	if isSSH {

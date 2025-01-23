@@ -20,6 +20,7 @@ import (
 )
 
 func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	var r = req
 	var err error
 	// NTLM Step 1: Send Negotiate Message
@@ -93,6 +94,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 }
 
 func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	var r = req
 	var err error
 	var proxyFQDN string

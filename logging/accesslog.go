@@ -12,8 +12,6 @@ type AccessLogRecord struct {
         ProxyIP string
         // session ID
         SessionID int64
-        // session state
-        State string
         // source IP
         SourceIP string
         // destinaion IP
@@ -51,7 +49,7 @@ func AccesslogWrite (record AccessLogRecord) (int, error){
         if readconfig.Config != nil {
                accesslogFilename = readconfig.Config.Logging.AccessLog
 	}
-	length, err := osPrintf(accesslogFilename,"ACCESS","proxy=%s,proxyIP=%s,sessionID=%d,state=%s,sourceIP=%s,destinationIP=%s,forwardedIP=%s,upstreamProxyIPmethod=%s,scheme=%s,url=%s,version=%s,status=%s,bytesIN=%d,bytesOUT=%d,protocol=%s,starttime=%s,endtime=%s,duaration=%s\n",record.Proxy,record.ProxyIP,record.SessionID,record.State,record.SourceIP,record.DestinationIP,record.ForwardedIP,record.UpstreamProxyIP,record.Method,record.Scheme,record.Url,record.Version,record.Status,record.BytesIN,record.BytesOUT,record.Protocol,record.Starttime.Format(time.RFC1123),record.Endtime.Format(time.RFC1123),record.Duration.String())
+	length, err := osPrintf(accesslogFilename,"ACCESS","proxy=%s;proxyIP=%s;sessionID=%d;sourceIP=%s;destinationIP=%s;forwardedIP=%s;upstreamProxyIP=%s;method=%s;scheme=%s;url=%s;version=%s;status=%s;bytesIN=%d;bytesOUT=%d;protocol=%s;starttime=%s;endtime=%s;duaration=%s\n",record.Proxy,record.ProxyIP,record.SessionID,record.SourceIP,record.DestinationIP,record.ForwardedIP,record.UpstreamProxyIP,record.Method,record.Scheme,record.Url,record.Version,record.Status,record.BytesIN,record.BytesOUT,record.Protocol,record.Starttime.Format(time.RFC1123),record.Endtime.Format(time.RFC1123),record.Duration.String())
 	return length,err
 }
 
