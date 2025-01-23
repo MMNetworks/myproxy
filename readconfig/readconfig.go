@@ -18,21 +18,21 @@ var Config *Schema
 // use `yaml:""` struct tag to parse fields name with
 // kebabcase, snakecase, and camelcase fields
 type PAC struct {
-	Type  string `yaml:"type"`
-	File  string `yaml:"file"`
-	URL   string `yaml:"url"`
-	Proxy string `yaml:"proxy"`
-	CacheTime int `yaml:"cachetime"`
+	Type      string `yaml:"type"`
+	File      string `yaml:"file"`
+	URL       string `yaml:"url"`
+	Proxy     string `yaml:"proxy"`
+	CacheTime int    `yaml:"cachetime"`
 }
 type Listen struct {
 	IP   string `yaml:"ip"`
 	Port string `yaml:"port"`
 }
 type Logging struct {
-	Level string `yaml:"level"`
-	File  string `yaml:"file"`
+	Level     string `yaml:"level"`
+	File      string `yaml:"file"`
 	AccessLog string `yaml:"accesslog"`
-	Trace bool `yaml:"trace"`
+	Trace     bool   `yaml:"trace"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`

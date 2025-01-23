@@ -2,14 +2,14 @@ package httpproxy
 
 import (
 	"crypto/tls"
-	"net"
 	"errors"
-	"net/http"
-	"sync/atomic"
 	"myproxy/logging"
-	"time"
+	"net"
+	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
+	"time"
 )
 
 // Proxy defines parameters for running an HTTP Proxy. It implements
@@ -71,13 +71,13 @@ type Proxy struct {
 
 // NewProxy returns a new Proxy has default CA certificate and key.
 func NewProxy() (*Proxy, error) {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	return NewProxyCert(nil, nil)
 }
 
 // NewProxyCert returns a new Proxy given CA certificate and key.
 func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	prx := &Proxy{
 		Rt: &http.Transport{TLSClientConfig: &tls.Config{},
 			Proxy: http.ProxyFromEnvironment,
@@ -104,21 +104,21 @@ func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 }
 
 func NetDial(ctx *Context, network, address string) (net.Conn, error) {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
-        newDial := net.Dialer{
-        	Timeout: 5 * time.Second, // Set the timeout duration
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	newDial := net.Dialer{
+		Timeout:   5 * time.Second, // Set the timeout duration
 		KeepAlive: 5 * time.Second,
-        }
+	}
 
-        conn, err := newDial.Dial("tcp", address)
-        if err != nil {
+	conn, err := newDial.Dial("tcp", address)
+	if err != nil {
 		logging.Printf("ERROR", "NetDial: Error connecting to adress: %s error: %v\n", address, err)
-                ctx.AccessLog.Status = "500 internal error"
-                return nil, err
-        }
-        ctx.AccessLog.UpstreamProxyIP = ""
-        ctx.AccessLog.Status = "200 connected to "+conn.RemoteAddr().String()
-        ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
+		ctx.AccessLog.Status = "500 internal error"
+		return nil, err
+	}
+	ctx.AccessLog.UpstreamProxyIP = ""
+	ctx.AccessLog.Status = "200 connected to " + conn.RemoteAddr().String()
+	ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 
 	return conn, err
 }
@@ -126,7 +126,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 // ServeHTTP implements http.Handler.
 func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := &Context{Prx: prx, SessionNo: atomic.AddInt64(&prx.SessionNo, 1)}
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 
 	defer func() {
 		rec := recover()
@@ -138,31 +138,31 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-        // Initialise access log values
-        ctx.AccessLog.Proxy, _ = os.Hostname()
-        ctx.AccessLog.SessionID = ctx.SessionNo
-        ctx.AccessLog.SourceIP = r.RemoteAddr
-        ctx.AccessLog.DestinationIP = ""
-        ctx.AccessLog.ForwardedIP = ""
-        if len(r.Header.Values("X-Forwarded-For")) > 0 {
-                forwardedValues := r.Header.Values("X-Forwarded-For")
-                ctx.AccessLog.ForwardedIP = strings.Join(forwardedValues[:],",")
-        } else if len(r.Header.Values("Forwarded")) > 0 {
-                forwardedValues := r.Header.Values("Forwarded")
-                ctx.AccessLog.ForwardedIP = strings.Join(forwardedValues[:],",")
-        }
-        ctx.AccessLog.UpstreamProxyIP = ""
-        ctx.AccessLog.Method = r.Method
-        ctx.AccessLog.Scheme = r.URL.Scheme
-        ctx.AccessLog.Url = r.URL.String()
-        ctx.AccessLog.Version = r.Proto
-        ctx.AccessLog.Status = ""
-        ctx.AccessLog.BytesIN = 0
-        ctx.AccessLog.BytesOUT = 0
-        ctx.AccessLog.Protocol = ""
-        ctx.AccessLog.Starttime = time.Now()
-        ctx.AccessLog.Endtime = time.Now()
-        ctx.AccessLog.Duration = time.Duration(0)
+	// Initialise access log values
+	ctx.AccessLog.Proxy, _ = os.Hostname()
+	ctx.AccessLog.SessionID = ctx.SessionNo
+	ctx.AccessLog.SourceIP = r.RemoteAddr
+	ctx.AccessLog.DestinationIP = ""
+	ctx.AccessLog.ForwardedIP = ""
+	if len(r.Header.Values("X-Forwarded-For")) > 0 {
+		forwardedValues := r.Header.Values("X-Forwarded-For")
+		ctx.AccessLog.ForwardedIP = strings.Join(forwardedValues[:], ",")
+	} else if len(r.Header.Values("Forwarded")) > 0 {
+		forwardedValues := r.Header.Values("Forwarded")
+		ctx.AccessLog.ForwardedIP = strings.Join(forwardedValues[:], ",")
+	}
+	ctx.AccessLog.UpstreamProxyIP = ""
+	ctx.AccessLog.Method = r.Method
+	ctx.AccessLog.Scheme = r.URL.Scheme
+	ctx.AccessLog.Url = r.URL.String()
+	ctx.AccessLog.Version = r.Proto
+	ctx.AccessLog.Status = ""
+	ctx.AccessLog.BytesIN = 0
+	ctx.AccessLog.BytesOUT = 0
+	ctx.AccessLog.Protocol = ""
+	ctx.AccessLog.Starttime = time.Now()
+	ctx.AccessLog.Endtime = time.Now()
+	ctx.AccessLog.Duration = time.Duration(0)
 	conn, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if !ok {
 		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Addre"))
@@ -170,12 +170,12 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the local address from the connection
-    	localAddr, ok := conn.(*net.TCPAddr)
+	localAddr, ok := conn.(*net.TCPAddr)
 	if !ok {
 		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Addre"))
 		return
 	}
-        ctx.AccessLog.ProxyIP = localAddr.String()
+	ctx.AccessLog.ProxyIP = localAddr.String()
 
 	if ctx.doAccept(w, r) {
 		return

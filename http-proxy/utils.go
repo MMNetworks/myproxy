@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"myproxy/logging"
 	"net/http"
 	"net/http/httputil"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
-	"myproxy/logging"
 )
 
 // InMemoryResponse creates new HTTP response given arguments.
 func InMemoryResponse(code int, header http.Header, body []byte) *http.Response {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if header == nil {
 		header = make(http.Header)
 	}
@@ -44,7 +44,7 @@ func InMemoryResponse(code int, header http.Header, body []byte) *http.Response 
 
 // ServeResponse serves HTTP response to http.ResponseWriter.
 func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if resp.Body != nil {
 		defer resp.Body.Close()
 	}
@@ -123,14 +123,14 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 
 // ServeInMemory serves HTTP response given arguments to http.ResponseWriter.
 func ServeInMemory(w http.ResponseWriter, code int, header http.Header, body []byte) error {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	return ServeResponse(w, InMemoryResponse(code, header, body))
 }
 
 var hasPort = regexp.MustCompile(`:\d+$`)
 
 func stripPort(s string) string {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	ix := strings.IndexRune(s, ':')
 	if ix == -1 {
 		return s

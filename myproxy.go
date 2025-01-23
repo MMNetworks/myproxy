@@ -10,4 +10,3 @@ func main() {
 	service.Service(os.Args[:])
 
 }
-

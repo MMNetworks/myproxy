@@ -7,11 +7,11 @@ import (
 	"crypto/x509"
 	"math/big"
 	mrand "math/rand"
+	"myproxy/logging"
 	"net"
 	"sort"
 	"sync"
 	"time"
-	"myproxy/logging"
 )
 
 // CaSigner is a certificate signer by CA certificate. It supports caching.
@@ -28,13 +28,13 @@ type CaSigner struct {
 
 // NewCaSigner returns a new CaSigner without caching.
 func NewCaSigner() *CaSigner {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	return NewCaSignerCache(0)
 }
 
 // NewCaSignerCache returns a new CaSigner with caching given max.
 func NewCaSignerCache(max int) *CaSigner {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if max < 0 {
 		max = 0
 	}
@@ -48,7 +48,7 @@ func NewCaSignerCache(max int) *CaSigner {
 
 // SignHost generates TLS certificate given single host, signed by CA certificate.
 func (c *CaSigner) SignHost(host string) (cert *tls.Certificate) {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if host == "" {
 		return
 	}
@@ -93,7 +93,7 @@ func (c *CaSigner) SignHost(host string) (cert *tls.Certificate) {
 
 // SignHosts generates TLS certificate given hosts, signed by CA certificate.
 func SignHosts(ca tls.Certificate, hosts []string) (*tls.Certificate, error) {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	x509ca, err := x509.ParseCertificate(ca.Certificate[0])
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func SignHosts(ca tls.Certificate, hosts []string) (*tls.Certificate, error) {
 }
 
 func hashSorted(lst []string) []byte {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	c := make([]string, len(lst))
 	copy(c, lst)
 	sort.Strings(c)
@@ -147,7 +147,7 @@ func hashSorted(lst []string) []byte {
 }
 
 func hashSortedBigInt(lst []string) *big.Int {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	rv := new(big.Int)
 	rv.SetBytes(hashSorted(lst))
 	return rv

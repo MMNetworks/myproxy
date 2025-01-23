@@ -17,14 +17,14 @@ import (
 
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	logging.Printf("ERROR", "OnError: %s: %s [%s]\n", where, err, opErr)
 	// panic(err)
 }
 
 func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	r *http.Request) bool {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	// Handle local request has path "/info"
 	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
 		w.Write([]byte("This is myproxy."))
@@ -38,7 +38,7 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 }
 
 func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	// Auth test user.
 	if pass != "" {
 		hash := sha256.New()
@@ -57,7 +57,7 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	return httpproxy.ConnectProxy, host
 	// Apply "Man in the Middle" to all ssl connections. Never change host.
 	//return httpproxy.ConnectMitm, host
@@ -65,14 +65,14 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 
 func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	resp *http.Response) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	// var err error
 	return
 }
 
 func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	resp *http.Response) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if resp.StatusCode == http.StatusProxyAuthRequired {
 		_, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -163,10 +163,10 @@ func runProxy(args []string) {
 	// Listen...
 	logging.Printf("DEBUG", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
 	listen := readconfig.Config.Listen.IP + ":" + readconfig.Config.Listen.Port
- 	err = http.ListenAndServe(listen, prx)
- 	if err != nil {
- 		logging.Printf("ERROR", "runProxy: ListenAndServer error: %v\n", err)
- 	}
+	err = http.ListenAndServe(listen, prx)
+	if err != nil {
+		logging.Printf("ERROR", "runProxy: ListenAndServer error: %v\n", err)
+	}
 
 	return
 }

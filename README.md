@@ -124,6 +124,7 @@ listen:
 logging:
   level: "debug"
   file: "log_9080"
+  trace: true
   accesslog: "access.log"
 pac:
   type: "FILE"

@@ -12,7 +12,7 @@ import (
 )
 
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var err error
 	proxyAuthValues := resp.Header.Values("Proxy-Authenticate")
 	logging.Printf("DEBUG", "DoProxyAuth: Proxy-Authenticate header: %s\n", proxyAuthValues)
@@ -61,7 +61,7 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 }
 
 func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var r = req
 	var err error
 
@@ -79,42 +79,41 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 			return err
 		} else if basicResp.StatusCode != http.StatusProxyAuthRequired {
 			logging.Printf("ERROR", "DoBasicProxyAuth: RoundTrip error: %v\n", err)
-			overwriteResponse(resp,basicResp)
+			overwriteResponse(resp, basicResp)
 			return err
 		}
 	}
 
-	overwriteResponse(resp,basicResp)
+	overwriteResponse(resp, basicResp)
 	logging.Printf("DEBUG", "DoBasicProxyAuth: Auth done\n")
 	return nil
 }
 
 func overwriteResponse(orgResp *http.Response, newResp *http.Response) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
-        // Replace original response
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	// Replace original response
 	if newResp == nil {
-                logging.Printf("DEBUG", "overwriteResponse: empty response\n")
+		logging.Printf("DEBUG", "overwriteResponse: empty response\n")
 		return
 	}
-        orgResp.StatusCode = newResp.StatusCode
-        orgResp.Status = newResp.Status
-        for k, _ := range orgResp.Header {
-                orgResp.Header.Del(k)
-                logging.Printf("DEBUG", "overwriteResponse: delete header %s\n", k)
-        }
-        for k, v := range newResp.Header {
-                for i := 0; i < len(v); i++ {
-                        orgResp.Header.Add(k, v[i])
-                }
-                logging.Printf("DEBUG", "overwriteResponse: add header %s=%s\n", k, v)
-        }
-        if newResp.Body != http.NoBody {
-                orgResp.Body = newResp.Body
-        } else {
-                orgResp.Body = http.NoBody
-        }
-        orgResp.ContentLength = newResp.ContentLength
-        orgResp.TLS = newResp.TLS
-        copy(orgResp.TransferEncoding, newResp.TransferEncoding)
+	orgResp.StatusCode = newResp.StatusCode
+	orgResp.Status = newResp.Status
+	for k, _ := range orgResp.Header {
+		orgResp.Header.Del(k)
+		logging.Printf("DEBUG", "overwriteResponse: delete header %s\n", k)
+	}
+	for k, v := range newResp.Header {
+		for i := 0; i < len(v); i++ {
+			orgResp.Header.Add(k, v[i])
+		}
+		logging.Printf("DEBUG", "overwriteResponse: add header %s=%s\n", k, v)
+	}
+	if newResp.Body != http.NoBody {
+		orgResp.Body = newResp.Body
+	} else {
+		orgResp.Body = http.NoBody
+	}
+	orgResp.ContentLength = newResp.ContentLength
+	orgResp.TLS = newResp.TLS
+	copy(orgResp.TransferEncoding, newResp.TransferEncoding)
 }
-
