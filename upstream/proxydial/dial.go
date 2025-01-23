@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	// "os"
 	// "github.com/yassinebenaid/godump"
 )
@@ -25,6 +26,7 @@ func c2s(conn net.Conn) string {
 
 // Dial for TLS connection using CONNECT method
 func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	var err error
 	var host string
 	var conn net.Conn
@@ -40,16 +42,18 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 	}
 
 	if proxy != "" {
-		conn, err = net.Dial("tcp", proxy)
+		newDial := net.Dialer{
+                	Timeout: 5 * time.Second, // Set the timeout duration
+                        KeepAlive: 5 * time.Second,
+                }
+		conn, err = newDial.Dial("tcp", proxy)
 		logging.Printf("DEBUG", "PrxDial: After Dial: %v\n", c2s(conn))
 		// Overwrite upstream Proxy
 		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			Dial: func(network, addr string) (net.Conn, error) {
-				logging.Printf("DEBUG", "PrxDial: Transport Dial: %v\n", c2s(conn))
 				return conn, err
 			},
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				logging.Printf("DEBUG", "PrxDial: Transport DialContext: %v\n", c2s(conn))
+			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 				return conn, err
 			},
 		}
@@ -69,8 +73,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			logging.Printf("ERROR", "PrxDial: Error reading response from proxy: %v\n", err)
 			return nil, err
 		}
-		ctx.AccessLog.EndRecord.Status = resp.Status
-		// godump.Dump(req)
+		ctx.AccessLog.Status = resp.Status
 		if resp.StatusCode == http.StatusProxyAuthRequired {
 			_, err = io.ReadAll(resp.Body)
 			if err != nil {
@@ -86,20 +89,30 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			}
 			req.Header.Add("Proxy-Connection", "Keep-Alive")
 			authenticate.DoProxyAuth(ctx, req, resp)
-			// godump.Dump(resp)
 		}
 
+		ctx.AccessLog.Status = resp.Status
+		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
+		ctx.AccessLog.DestinationIP = ""
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "PrxDial: Failed to connect to proxy respones status: %s\n", resp.Status)
-			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
+			logging.Printf("ERROR", "PrxDial: Failed to connect to proxy response status: %s\n", resp.Status)
+    			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
 		}
 
 	} else {
-		conn, err = net.Dial("tcp", address)
+		newDial := net.Dialer{
+                	Timeout: 5 * time.Second, // Set the timeout duration
+                        KeepAlive: 5 * time.Second,
+                }
+		conn, err = newDial.Dial("tcp", address)
 		if err != nil {
 			logging.Printf("ERROR", "PrxDial: Error connecting to adress: %s error: %v\n", address, err)
+			ctx.AccessLog.Status = "500 internal error"
 			return nil, err
 		}
+		ctx.AccessLog.UpstreamProxyIP = ""
+		ctx.AccessLog.Status = "200 connected to "+conn.RemoteAddr().String()
+		ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 	}
 	return conn, nil
 }

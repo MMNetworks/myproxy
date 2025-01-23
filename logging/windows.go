@@ -95,6 +95,8 @@ func Printf(level string, format string, a ...any) (int, error) {
 		} else if level == "ACCESS" {
 			err = wlog.Info(500, "ACCESS: "+message)
 			length = len("ACCESS: " + message)
+		} else if level == "TRACE" {
+			// Don't log trace to eventlog
 		} else {
 			err = wlog.Info(500, "UNKNONW: "+message)
 			length = len("UNKNOWN: " + message)

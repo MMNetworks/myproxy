@@ -18,6 +18,7 @@ import (
 )
 
 func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	// NTLM Step 1: Send Negotiate Message
 	sspiCred, err := ntlm.AcquireCurrentUserCredentials()
 	if err != nil {
@@ -95,6 +96,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 }
 
 func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	var r = req
 	var proxyFQDN string
 	var servicePrincipalName string

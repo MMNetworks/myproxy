@@ -12,6 +12,7 @@ import (
 )
 
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	var err error
 	proxyAuthValues := resp.Header.Values("Proxy-Authenticate")
 	logging.Printf("DEBUG", "DoProxyAuth: Proxy-Authenticate header: %s\n", proxyAuthValues)
@@ -60,6 +61,7 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 }
 
 func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	var r = req
 	var err error
 
@@ -88,7 +90,12 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 }
 
 func overwriteResponse(orgResp *http.Response, newResp *http.Response) {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
         // Replace original response
+	if newResp == nil {
+                logging.Printf("DEBUG", "overwriteResponse: empty response\n")
+		return
+	}
         orgResp.StatusCode = newResp.StatusCode
         orgResp.Status = newResp.Status
         for k, _ := range orgResp.Header {

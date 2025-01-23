@@ -6,15 +6,24 @@ import (
 	"os"
 	"strings"
 	"time"
+	"runtime"
 )
+
+func GetFunctionName() string {
+        pc, _, _, _ := runtime.Caller(1)
+        fn := runtime.FuncForPC(pc)
+        return fn.Name()
+}
 
 func osPrintf(logFilename string, level string, format string, a ...any) (int, error) {
 	var length int = 0
 	var err error = nil
 	var logLevel string = "DEBUG"
+	var logTrace bool = false
 
 	if readconfig.Config != nil {
 		logLevel = strings.ToUpper(readconfig.Config.Logging.Level)
+		logTrace = readconfig.Config.Logging.Trace
 	}
 
 	message := fmt.Sprintf(format, a...)
@@ -54,6 +63,10 @@ func osPrintf(logFilename string, level string, format string, a ...any) (int, e
 			length, err = fmt.Fprintf(logFile, "%s ERROR: %s", timeStamp, message)
 		} else if level == "ACCESS" {
 			length, err = fmt.Fprintf(logFile, "%s ACCESS: %s", timeStamp, message)
+		} else if level == "TRACE" {
+			if logTrace {
+				length, err = fmt.Printf("%s TRACE: %s", timeStamp, message)
+			}
 		} else {
 			length, err = fmt.Fprintf(logFile, "%s UNKNOWN: %s", timeStamp, message)
 		}
@@ -89,8 +102,12 @@ func osPrintf(logFilename string, level string, format string, a ...any) (int, e
 			length, err = fmt.Printf("%s ERROR: %s", timeStamp, message)
 		} else if level == "ACCESS" {
 			length, err = fmt.Printf("%s ACCESS: %s", timeStamp, message)
+		} else if level == "TRACE" {
+			if logTrace {
+				length, err = fmt.Printf("%s TRACE: %s", timeStamp, message)
+			}
 		} else {
-			length, err = fmt.Printf("%s UNKNOWN: %s", timeStamp, message)
+			length, err = fmt.Printf("%s UNKNOWN: %s", level, timeStamp, message)
 		}
 	}
 	return length, err

@@ -32,6 +32,7 @@ type Logging struct {
 	Level string `yaml:"level"`
 	File  string `yaml:"file"`
 	AccessLog string `yaml:"accesslog"`
+	Trace bool `yaml:"trace"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
@@ -155,12 +156,12 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" {
 		log.Printf("ERROR: ReadConfig: reading PAC type field: %s\n", configOut.PAC.Type)
 		log.Printf("ERROR: ReadConfig: only FILE and URL supported\n")
-		return nil, err
+		return nil, errors.New("Wrong PAC type")
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File == "" {
 		log.Printf("ERROR: ReadConfig: reading PAC type FILE: %s\n", configOut.PAC.File)
 		log.Printf("ERROR: ReadConfig: FILE needs a filename\n")
-		return nil, err
+		return nil, errors.New("PAC File name missing")
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File != "" {
 		pacFilepath, err := filepath.Abs(configOut.PAC.File)
@@ -178,13 +179,13 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	if configOut.PAC.Type == "URL" && configOut.PAC.URL == "" {
 		log.Printf("ERROR: ReadConfig: reading PAC type URL: %s\n", configOut.PAC.URL)
 		log.Printf("ERROR: ReadConfig: URL needs a url\n")
-		return nil, err
+		return nil, errors.New("PAC URL missing")
 	}
 	for i, v := range configOut.Proxy.Authentication {
 		if v != "ntlm" && v != "negotiate" && v != "basic" {
 			log.Printf("ERROR: ReadConfig: reading authentication field: %d:%s\n", i+1, v)
 			log.Printf("ERROR: ReadConfig: only ntln,negotiate and basic are supported\n")
-			return nil, err
+			return nil, errors.New("Invalid Authentication type")
 		}
 	}
 	if osType != "windows" {

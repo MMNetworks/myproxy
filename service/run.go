@@ -17,17 +17,17 @@ import (
 
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
-	// Log errors.
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	logging.Printf("ERROR", "OnError: %s: %s [%s]\n", where, err, opErr)
 	// panic(err)
 }
 
 func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	r *http.Request) bool {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	// Handle local request has path "/info"
-	logging.Printf("DEBUG", "OnAccept: %s %s\n", ctx.Req.Method, ctx.Req.URL.Redacted())
 	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
-		w.Write([]byte("This is go-httpproxy."))
+		w.Write([]byte("This is myproxy."))
 		return true
 	}
 	err := upstream.SetProxy(ctx)
@@ -38,8 +38,8 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 }
 
 func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	// Auth test user.
-	logging.Printf("DEBUG", "OnAuth: %s %s\n", ctx.Req.Method, ctx.Req.URL.Redacted())
 	if pass != "" {
 		hash := sha256.New()
 		hash.Write([]byte(pass))
@@ -57,25 +57,22 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
-	// Apply "Man in the Middle" to all ssl connections. Never change host.
-	logging.Printf("DEBUG", "OnConnect: %s %s\n", ctx.Req.Method, ctx.Req.URL.Redacted())
-	logging.Printf("DEBUG", "OnConnect: Host:%s NewHost:%s\n", host, newHost)
-	//      log.Printf("INFO: Proxy: Context: ")
-	//      godump.Dump(ctx)
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	return httpproxy.ConnectProxy, host
+	// Apply "Man in the Middle" to all ssl connections. Never change host.
 	//return httpproxy.ConnectMitm, host
 }
 
 func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	resp *http.Response) {
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	// var err error
-	logging.Printf("DEBUG", "OnRequest: %s %s\n", req.Method, req.URL.Redacted())
 	return
 }
 
 func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	resp *http.Response) {
-	logging.Printf("DEBUG", "OnResponse: %s %s\n", ctx.Req.Method, ctx.Req.URL.Redacted())
+        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	if resp.StatusCode == http.StatusProxyAuthRequired {
 		_, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -86,7 +83,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 		authenticate.DoProxyAuth(ctx, req, resp)
 	}
 	// Add header "Via: go-httpproxy".
-	resp.Header.Add("Via", "go-httpproxy")
+	resp.Header.Add("Via", "myproxy")
 }
 
 func runProxy(args []string) {
@@ -110,6 +107,7 @@ func runProxy(args []string) {
 		return
 	}
 	logging.Printf("INFO", "runProxy: Logging.Level: %s\n", readconfig.Config.Logging.Level)
+	logging.Printf("INFO", "runProxy: Logging.Trace: %t\n", readconfig.Config.Logging.Trace)
 	logging.Printf("INFO", "runProxy: Logging.File: %s\n", readconfig.Config.Logging.File)
 	logging.Printf("INFO", "runProxy: Logging.AccessLog: %s\n", readconfig.Config.Logging.AccessLog)
 	logging.Printf("INFO", "runProxy: PAC.Type: %s\n", readconfig.Config.PAC.Type)

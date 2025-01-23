@@ -64,6 +64,8 @@ func Printf(level string, format string, a ...any) (int, error) {
                 } else if level == "ACCESS" {
 			err = sysLog.Info("ACCESS:" + message)
 			length = len("ACCESS: " + message)
+                } else if level == "TRACE" {
+			// Don't log trace to syslog
 		} else {
 			err = sysLog.Info("UNKNOWN:" + message)
 			length = len("UNKNOWN: " + message)

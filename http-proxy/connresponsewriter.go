@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"myproxy/logging"
 )
 
 // ConnResponseWriter implements http.ResponseWriter interface to use hijacked
@@ -20,16 +21,19 @@ type ConnResponseWriter struct {
 
 // NewConnResponseWriter returns a new ConnResponseWriter.
 func NewConnResponseWriter(conn net.Conn) *ConnResponseWriter {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	return &ConnResponseWriter{Conn: conn, header: make(http.Header)}
 }
 
 // Header returns the header map that will be sent by WriteHeader.
 func (c *ConnResponseWriter) Header() http.Header {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	return c.header
 }
 
 // Write writes the data to the connection as part of an HTTP reply.
 func (c *ConnResponseWriter) Write(body []byte) (int, error) {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.writeHeader(http.StatusOK)
@@ -45,6 +49,7 @@ func (c *ConnResponseWriter) Write(body []byte) (int, error) {
 
 // WriteHeader sends an HTTP response header with status code.
 func (c *ConnResponseWriter) WriteHeader(statusCode int) {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.writeHeader(statusCode)
@@ -52,10 +57,12 @@ func (c *ConnResponseWriter) WriteHeader(statusCode int) {
 
 // Close closes network connection.
 func (c *ConnResponseWriter) Close() error {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	return c.Conn.Close()
 }
 
 func (c *ConnResponseWriter) writeHeader(statusCode int) {
+	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
 	if c.err != nil {
 		return
 	}
