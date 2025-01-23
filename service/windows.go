@@ -123,7 +123,7 @@ func Service(args []string) {
 }
 
 func exePath() (string, error) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	prog := os.Args[0]
 	p, err := filepath.Abs(prog)
 	if err != nil {
@@ -151,7 +151,7 @@ func exePath() (string, error) {
 }
 
 func installService(name, desc string, username string, password string, configFile string) error {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var serviceConfig mgr.Config
 	exepath, err := exePath()
 	if err != nil {
@@ -180,7 +180,7 @@ func installService(name, desc string, username string, password string, configF
 }
 
 func updateService(name, config string) error {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func updateService(name, config string) error {
 }
 
 func removeService(name string) error {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
@@ -225,7 +225,7 @@ func removeService(name string) error {
 }
 
 func startService(name string, configFile string) error {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	m, err := mgr.Connect()
 	if err != nil {
 		return err
@@ -246,7 +246,7 @@ func startService(name string, configFile string) error {
 }
 
 func controlService(name string, c svc.Cmd, to svc.State) (error, svc.State) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	m, err := mgr.Connect()
 	if err != nil {
 		return err, 0
@@ -276,7 +276,7 @@ func controlService(name string, c svc.Cmd, to svc.State) (error, svc.State) {
 }
 
 func runService(name string) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var err error
 
 	logging.Printf("INFO", "runService: starting %s service\n", name)
@@ -292,7 +292,7 @@ func runService(name string) {
 type myproxyService struct{}
 
 func (m *myproxyService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	const cmdsAccepted = svc.AcceptStop | svc.AcceptShutdown | svc.AcceptPauseAndContinue
 	changes <- svc.Status{State: svc.StartPending}
 
@@ -331,7 +331,7 @@ loop:
 }
 
 func stateName(state svc.State) string {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	switch {
 	case state == svc.Stopped:
 		return "Stopped"

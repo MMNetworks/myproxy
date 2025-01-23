@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"myproxy/upstream/authenticate"
 	"myproxy/http-proxy"
 	"myproxy/logging"
+	"myproxy/upstream/authenticate"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,7 +26,7 @@ func c2s(conn net.Conn) string {
 
 // Dial for TLS connection using CONNECT method
 func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var err error
 	var host string
 	var conn net.Conn
@@ -43,9 +43,9 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 
 	if proxy != "" {
 		newDial := net.Dialer{
-                	Timeout: 5 * time.Second, // Set the timeout duration
-                        KeepAlive: 5 * time.Second,
-                }
+			Timeout:   5 * time.Second, // Set the timeout duration
+			KeepAlive: 5 * time.Second,
+		}
 		conn, err = newDial.Dial("tcp", proxy)
 		logging.Printf("DEBUG", "PrxDial: After Dial: %v\n", c2s(conn))
 		// Overwrite upstream Proxy
@@ -96,14 +96,14 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		ctx.AccessLog.DestinationIP = ""
 		if resp.StatusCode != http.StatusOK {
 			logging.Printf("ERROR", "PrxDial: Failed to connect to proxy response status: %s\n", resp.Status)
-    			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
+			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
 		}
 
 	} else {
 		newDial := net.Dialer{
-                	Timeout: 5 * time.Second, // Set the timeout duration
-                        KeepAlive: 5 * time.Second,
-                }
+			Timeout:   5 * time.Second, // Set the timeout duration
+			KeepAlive: 5 * time.Second,
+		}
 		conn, err = newDial.Dial("tcp", address)
 		if err != nil {
 			logging.Printf("ERROR", "PrxDial: Error connecting to adress: %s error: %v\n", address, err)
@@ -111,7 +111,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			return nil, err
 		}
 		ctx.AccessLog.UpstreamProxyIP = ""
-		ctx.AccessLog.Status = "200 connected to "+conn.RemoteAddr().String()
+		ctx.AccessLog.Status = "200 connected to " + conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 	}
 	return conn, nil

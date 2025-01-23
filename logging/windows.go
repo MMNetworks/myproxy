@@ -45,10 +45,10 @@ func Printf(level string, format string, a ...any) (int, error) {
 					if inService {
 						newlogFilename = stdoutLog
 					}
-					osPrintf(newlogFilename,"ERROR","Printf: Cannot create eventlog: %v\n",err) 
-					osPrintf(newlogFilename,"INFO","Printf: switch to %s\n",newlogFilename) 
+					osPrintf(newlogFilename, "ERROR", "Printf: Cannot create eventlog: %v\n", err)
+					osPrintf(newlogFilename, "INFO", "Printf: switch to %s\n", newlogFilename)
 					if readconfig.Config != nil {
-				                readconfig.Config.Logging.File = newlogFilename
+						readconfig.Config.Logging.File = newlogFilename
 					}
 					osPrintf(logFilename, level, format, a...)
 					return 0, err

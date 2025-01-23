@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"myproxy/readconfig"
 	"os"
+	"runtime"
 	"strings"
 	"time"
-	"runtime"
 )
 
 func GetFunctionName() string {
-        pc, _, _, _ := runtime.Caller(1)
-        fn := runtime.FuncForPC(pc)
-        return fn.Name()
+	pc, _, _, _ := runtime.Caller(1)
+	fn := runtime.FuncForPC(pc)
+	return fn.Name()
 }
 
 func osPrintf(logFilename string, level string, format string, a ...any) (int, error) {

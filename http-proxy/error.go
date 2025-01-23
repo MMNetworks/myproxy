@@ -5,9 +5,9 @@ package httpproxy
 import (
 	"errors"
 	"io"
+	"myproxy/logging"
 	"net"
 	"syscall"
-	"myproxy/logging"
 )
 
 // Library specific errors.
@@ -37,12 +37,12 @@ func NewError(errString string) *Error {
 
 // Error implements error interface.
 func (e *Error) Error() string {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	return e.ErrString
 }
 
 func isConnectionClosed(err error) bool {
-	logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if err == nil {
 		return false
 	}

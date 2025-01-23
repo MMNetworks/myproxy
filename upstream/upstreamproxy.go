@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"context"
 	"crypto/tls"
 	"github.com/darren/gpac"
 	"io"
@@ -14,7 +15,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"context"
 	"time"
 	// "github.com/yassinebenaid/godump"
 )
@@ -26,7 +26,7 @@ var timeNext time.Time = time.Now()
 var pac *gpac.Parser
 
 func SetProxy(ctx *httpproxy.Context) error {
-        logging.Printf("TRACE", "%s: called\n",logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var err error
 	var buf []byte
 	var transport *http.Transport
@@ -147,8 +147,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 				logging.Printf("DEBUG", "SetProxy: Dial %s\n", v.Address)
 				// test proxy port
 				connectCheck := net.Dialer{
-					Timeout: 5 * time.Second, // Set the timeout duration
-                                        KeepAlive: 5 * time.Second,
+					Timeout:   5 * time.Second, // Set the timeout duration
+					KeepAlive: 5 * time.Second,
 				}
 				conn, err := connectCheck.Dial("tcp", v.Address)
 				if err != nil {
@@ -205,30 +205,30 @@ func SetProxy(ctx *httpproxy.Context) error {
 		// Overwrite upstream Proxy
 		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			Proxy: http.ProxyURL(proxyURL),
-                        DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
-                                conn, err := (&net.Dialer{
-                                        Timeout:   5 * time.Second,
-                                        KeepAlive: 5 * time.Second,
-                                }).DialContext(dctx, network, addr)
-                                if err != nil {
-                                        return nil, err
-                                }
-                                ctx.AccessLog.DestinationIP = ""
-                                ctx.AccessLog.UpstreamProxyIP= conn.RemoteAddr().String()
-                                return conn, nil
-                        },
-                        Dial: func(network, addr string) (net.Conn, error) {
-                                conn, err := (&net.Dialer{
-                                        Timeout:   5 * time.Second,
-                                        KeepAlive: 5 * time.Second,
-                                }).Dial(network, addr)
-                                if err != nil {
-                                        return nil, err
-                                }
-                                ctx.AccessLog.DestinationIP = ""
-                                ctx.AccessLog.UpstreamProxyIP= conn.RemoteAddr().String()
-                                return conn, nil
-                        },
+			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+				conn, err := (&net.Dialer{
+					Timeout:   5 * time.Second,
+					KeepAlive: 5 * time.Second,
+				}).DialContext(dctx, network, addr)
+				if err != nil {
+					return nil, err
+				}
+				ctx.AccessLog.DestinationIP = ""
+				ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
+				return conn, nil
+			},
+			Dial: func(network, addr string) (net.Conn, error) {
+				conn, err := (&net.Dialer{
+					Timeout:   5 * time.Second,
+					KeepAlive: 5 * time.Second,
+				}).Dial(network, addr)
+				if err != nil {
+					return nil, err
+				}
+				ctx.AccessLog.DestinationIP = ""
+				ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
+				return conn, nil
+			},
 		}
 		// Use upstream Proxy for CONNECT
 		ctx.Prx.Dial = proxydial.PrxDial
@@ -244,7 +244,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 				if err != nil {
 					return nil, err
 				}
-        			ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
+				ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 				return conn, nil
 			},
 			Dial: func(network, addr string) (net.Conn, error) {
@@ -255,7 +255,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 				if err != nil {
 					return nil, err
 				}
-        			ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
+				ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 				return conn, nil
 			},
 		}
