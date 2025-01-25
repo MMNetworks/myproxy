@@ -498,7 +498,6 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	for name, values := range r.Header {
 		for _, value := range values {
 			headersSize += len(name) + len(value) + len(": ") + len("\r\n")
-			logging.Printf("DEBUG", "doResponse: header name/value: %s/%s, Session ID: %d\n", name,value, ctx.SessionNo)
 		}
 	}
 	// it seems host header information is moved to different entries in structure 
