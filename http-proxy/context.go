@@ -493,15 +493,24 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 
 	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	bodySize := r.ContentLength
-
+	
 	headersSize := 0
 	for name, values := range r.Header {
 		for _, value := range values {
 			headersSize += len(name) + len(value) + len(": ") + len("\r\n")
+			logging.Printf("DEBUG", "doResponse: header name/value: %s/%s, Session ID: %d\n", name,value, ctx.SessionNo)
 		}
 	}
+	// it seems host header information is moved to different entries in structure 
+	if r.Host == "" {
+		headersSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
+	} else {
+		headersSize += len("Host: ") + len(r.Host) + len("\r\n")
+	}
+	// added by roundtripper in transport request as extra header.
+	headersSize += len("Accept-Encoding: gzip\r\n")
 	// Adding the size of the initial request line and the final empty line
-	requestLineSize := len(r.Method) + len(r.URL.String()) + len(" HTTP/1.1\r\n")
+	requestLineSize := len(r.Method) + 1 + len(r.URL.Path) + len(" HTTP/1.1\r\n")
 	finalEmptyLineSize := len("\r\n")
 	// Calculate the total request size
 	totalSize := requestLineSize + headersSize + int(bodySize) + finalEmptyLineSize
@@ -542,11 +551,15 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		headersSize := 0
 		for name, values := range resp.Header {
 			for _, value := range values {
-				headersSize += len(name) + len(value) + len(": ") + len("\r\n")
+		                if strings.ToUpper(name) != "VIA" {	
+					headersSize += len(name) + len(value) + len(": ") + len("\r\n")
+				}
 			}
 		}
+		headerEmptyLineSize := len("\r\n")
+		responseLineSize := len(resp.Status) + len(" HTTP/1.1\r\n")
 		// Calculate the total request size
-		totalSize := headersSize + int(bodySize)
+		totalSize := responseLineSize + headersSize + headerEmptyLineSize + int(bodySize)
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(totalSize)
 	}
 	ctx.AccessLog.Endtime = time.Now()
