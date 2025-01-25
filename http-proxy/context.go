@@ -506,7 +506,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	} else {
 		headersSize += len("Host: ") + len(r.Host) + len("\r\n")
 	}
-	// added by roundtripper in transport request as extra header.
+	// Added by roundtripper in transport request as extra header to server.
 	headersSize += len("Accept-Encoding: gzip\r\n")
 	// Adding the size of the initial request line and the final empty line
 	requestLineSize := len(r.Method) + 1 + len(r.URL.Path) + len(" HTTP/1.1\r\n")
@@ -550,6 +550,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		headersSize := 0
 		for name, values := range resp.Header {
 			for _, value := range values {
+				// Via header added by this proxy to client
 		                if strings.ToUpper(name) != "VIA" {	
 					headersSize += len(name) + len(value) + len(": ") + len("\r\n")
 				}
