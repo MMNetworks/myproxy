@@ -225,7 +225,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			fmt.Printf("\n")
 			configOut.Proxy.KerberosPass = string(bytePassword)
 		}
-		if configOut.Proxy.KerberosCache == "" {
+		if configOut.Proxy.KerberosCache != "" {
 			ccacheFilepath, err := filepath.Abs(configOut.Proxy.KerberosCache)
 			if err != nil {
 				return nil, err
