@@ -192,6 +192,10 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if b := ctx.doFtp(w, r); b {
+		return
+	}
+
 	for {
 		var w2 = w
 		var r2 = r

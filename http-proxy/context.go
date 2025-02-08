@@ -2,14 +2,19 @@ package httpproxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"fmt"
+	"github.com/secsy/goftp"
 	"io"
 	"myproxy/logging"
 	"myproxy/protocol"
 	"net"
 	"net/http"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -183,6 +188,204 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 		ctx.doError("Auth", ErrResponseWrite, err)
 	}
 	return true
+}
+
+type ftpLogWriter struct {
+    writer io.Writer
+    bytes *byteCounterStorage
+}
+
+type byteCounterStorage struct {
+    totalBytesRead int64
+    totalBytesWritten int64
+}
+
+func (w ftpLogWriter) Write(p []byte) (n int, err error) {
+
+	lines := bytes.Split(p, []byte("\n"))
+
+	logString := string(p)
+	sendIndex := strings.Index(logString, "sending command ")
+	if sendIndex != -1 {
+		w.bytes.totalBytesWritten += int64(len(logString[sendIndex+15:]))
+	}
+	gotIndex := strings.Index(logString, "got ")
+	if gotIndex != -1 {
+		w.bytes.totalBytesRead += int64(len(logString[gotIndex+3:]))
+	}
+	for _, line := range lines {
+		str := string(line)
+		if str != "" {
+			logging.Printf("DEBUG", "doFtp: %s\n", str)
+		}
+	}
+	logging.Printf("DEBUG", "doFtp: BytesIN: %d\n", w.bytes.totalBytesRead)
+	logging.Printf("DEBUG", "doFtp: BytesOUT: %d\n", w.bytes.totalBytesWritten)
+	return len(p), nil
+}
+
+// Function to convert bytes to readable size
+func formatSize(bytes int64) string {
+	const (
+		kB = 1024
+		MB = kB * 1024
+		GB = MB * 1024
+	)
+
+	switch {
+	case bytes >= GB:
+		return fmt.Sprintf("%.2f GB", float64(bytes)/GB)
+	case bytes >= MB:
+		return fmt.Sprintf("%.2f MB", float64(bytes)/MB)
+	case bytes >= kB:
+		return fmt.Sprintf("%.2f kB", float64(bytes)/kB)
+	default:
+		return fmt.Sprintf("%d bytes", bytes)
+	}
+}
+
+func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	var ftpClient *goftp.Client
+	var err error
+
+	b = true
+	if r.URL.Scheme != "ftp" && r.URL.Scheme != "ftps" {
+		b = false
+		return
+	}
+	// Direct first
+	host := r.URL.Host
+	user := "anonymous"
+	pass := "myproxy"
+	if r.URL.User != nil {
+		user = r.URL.User.Username()
+		upass, set := r.URL.User.Password()
+		if set {
+			pass = upass
+		}
+	}
+	logging.Printf("DEBUG", "doFtp: Set Username to %s Session ID: %d\n", user, ctx.SessionNo)
+	// Try to count bytes send & received based on log data
+	// It will miss 
+	// 	first 220 Header from server 
+	// 	Password length as it is hidden
+	// Also directory data count is not exact as zize is converted to bytes, kB, MB, etc. 	
+	counterStorage := &byteCounterStorage{}
+	logWriter := &ftpLogWriter{bytes: counterStorage}
+	ftpClientConfig := goftp.Config{
+		User:               user,
+		Password:           pass,
+		ConnectionsPerHost: 1,
+		Timeout:            5 * time.Second,
+		Logger:             logWriter,
+	}
+	if !hasPort.MatchString(host) {
+		host += ":21"
+	}
+	ftpClient, err = goftp.DialConfig(ftpClientConfig, host)
+	defer ftpClient.Close()
+	if err != nil {
+		ctx.doError("Ftp", ErrRemoteConnect, err)
+		ctx.AccessLog.Status = "500 internal error"
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		w.Header().Set("Content-Type", "text/plain")
+		if err.(goftp.Error).Code() == 530 {
+			ctx.AccessLog.Status = "403 login failed"
+			w.WriteHeader(http.StatusForbidden)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN +  counterStorage.totalBytesRead
+		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+		logging.AccesslogWrite(ctx.AccessLog)
+		return
+	}
+
+	logging.Printf("DEBUG", "doFtp: Retrieving File/Dir Listing: \n")
+	buf := new(bytes.Buffer)
+	err = ftpClient.Retrieve(r.URL.Path, buf)
+	if err != nil {
+		if err.(goftp.Error).Code() > 499 && err.(goftp.Error).Code() < 600 {
+			files, err := ftpClient.ReadDir(r.URL.Path)
+			if err != nil {
+				ctx.doError("Ftp", ErrRemoteConnect, err)
+				ctx.AccessLog.Status = "500 internal error"
+				ctx.AccessLog.Endtime = time.Now()
+				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+				w.Header().Set("Content-Type", "text/plain")
+				if err.(goftp.Error).Code() == 530 {
+					ctx.AccessLog.Status = "403 login failed"
+					w.WriteHeader(http.StatusForbidden)
+				} else {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+				logging.AccesslogWrite(ctx.AccessLog)
+				return
+			} else {
+				hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
+				path := r.URL.Path
+				if hasSlash {
+					path = path[1:]
+				}
+				logging.Printf("DEBUG", "doFtp: Directory Listing: \n")
+				logging.Printf("DEBUG", "doFtp: FTP Directory Listing: ftp://%s/%s\n", host, path)
+				logging.Printf("DEBUG", "doFtp: Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
+				w.Header().Set("Content-Type", "text/plain")
+				// Write the response body
+				fmt.Fprintf(w, "Directory Listing: \n")
+				fmt.Fprintf(w, "FTP Directory Listing: ftp://%s/%s\n", host, path)
+				fmt.Fprintf(w, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
+				for _, file := range files {
+					if file.IsDir() {
+						logging.Printf("DEBUG", "doFtp: %s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+						n, _ := fmt.Fprintf(w, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+					} else {
+						readableSize := formatSize(file.Size())
+						logging.Printf("DEBUG", "doFtp: %s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+						n, _ := fmt.Fprintf(w, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+					}
+				}
+				ctx.AccessLog.Status = "200 OK"
+				ctx.AccessLog.Endtime = time.Now()
+				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+				logging.AccesslogWrite(ctx.AccessLog)
+			}
+		} else {
+			ctx.doError("Ftp", ErrRemoteConnect, err)
+			ctx.AccessLog.Status = "500 internal error"
+			ctx.AccessLog.Endtime = time.Now()
+			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
+			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+			logging.AccesslogWrite(ctx.AccessLog)
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// logging.Printf("DEBUG", "doFtp: Session ID: %d Content: %s\n", ctx.SessionNo, buf)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		n, _ := fmt.Fprintf(w, "%s", buf)
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+		ctx.AccessLog.Status = "200 OK"
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete."))
+		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+		logging.AccesslogWrite(ctx.AccessLog)
+	}
+	logging.Printf("DEBUG", "doFtp: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+
+	return
 }
 
 func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
@@ -493,14 +696,14 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 
 	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	bodySize := r.ContentLength
-	
+
 	headersSize := 0
 	for name, values := range r.Header {
 		for _, value := range values {
 			headersSize += len(name) + len(value) + len(": ") + len("\r\n")
 		}
 	}
-	// it seems host header information is moved to different entries in structure 
+	// it seems host header information is moved to different entries in structure
 	if r.Host == "" {
 		headersSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
 	} else {
@@ -551,7 +754,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		for name, values := range resp.Header {
 			for _, value := range values {
 				// Via header added by this proxy to client
-		                if strings.ToUpper(name) != "VIA" {	
+				if strings.ToUpper(name) != "VIA" {
 					headersSize += len(name) + len(value) + len(": ") + len("\r\n")
 				}
 			}
