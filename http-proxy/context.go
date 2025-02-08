@@ -219,8 +219,6 @@ func (w ftpLogWriter) Write(p []byte) (n int, err error) {
 			logging.Printf("DEBUG", "doFtp: %s\n", str)
 		}
 	}
-	logging.Printf("DEBUG", "doFtp: BytesIN: %d\n", w.bytes.totalBytesRead)
-	logging.Printf("DEBUG", "doFtp: BytesOUT: %d\n", w.bytes.totalBytesWritten)
 	return len(p), nil
 }
 
