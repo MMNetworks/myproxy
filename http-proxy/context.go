@@ -270,7 +270,8 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 	// It will miss 
 	// 	first 220 Header from server 
 	// 	Password length as it is hidden
-	// Also directory data count is not exact as zize is converted to bytes, kB, MB, etc. 	
+	// Also directory data count is not exact as size is converted to bytes, kB, MB, etc. 	
+	// Creates only one access log entry with bytesIN & bytesOUT from control and data connection combined.
 	counterStorage := &byteCounterStorage{}
 	logWriter := &ftpLogWriter{bytes: counterStorage}
 	ftpClientConfig := goftp.Config{
