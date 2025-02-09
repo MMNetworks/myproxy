@@ -11,8 +11,10 @@ import (
 	"io"
 	"myproxy/logging"
 	"myproxy/protocol"
+	"myproxy/readconfig"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -191,13 +193,13 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type ftpLogWriter struct {
-    writer io.Writer
-    bytes *byteCounterStorage
+	writer io.Writer
+	bytes  *bytesCounter
 }
 
-type byteCounterStorage struct {
-    totalBytesRead int64
-    totalBytesWritten int64
+type bytesCounter struct {
+	totalBytesIN  int64
+	totalBytesOUT int64
 }
 
 func (w ftpLogWriter) Write(p []byte) (n int, err error) {
@@ -207,11 +209,11 @@ func (w ftpLogWriter) Write(p []byte) (n int, err error) {
 	logString := string(p)
 	sendIndex := strings.Index(logString, "sending command ")
 	if sendIndex != -1 {
-		w.bytes.totalBytesWritten += int64(len(logString[sendIndex+15:]))
+		w.bytes.totalBytesOUT += int64(len(logString[sendIndex+15:]))
 	}
 	gotIndex := strings.Index(logString, "got ")
 	if gotIndex != -1 {
-		w.bytes.totalBytesRead += int64(len(logString[gotIndex+3:]))
+		w.bytes.totalBytesIN += int64(len(logString[gotIndex+3:]))
 	}
 	for _, line := range lines {
 		str := string(line)
@@ -242,20 +244,193 @@ func formatSize(bytes int64) string {
 	}
 }
 
+func c2s(conn net.Conn) string {
+        return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
+}
+
+func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (b bool) {
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+
+	proxy := ctx.UpstreamProxy
+
+	b = true
+	if proxy == "" {
+		logging.Printf("DEBUG", "doFtpUpstream: proxy not set\n")
+		b = false
+		return
+	}
+
+	hij, ok := w.(http.Hijacker)
+	if !ok {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
+		ctx.doError("Ftp", ErrNotSupportHijacking, nil)
+		ctx.AccessLog.Status = "500 internal error ErrNotSupportHijacking"
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
+		return
+	}
+	conn, _, err := hij.Hijack()
+	if err != nil {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
+		ctx.doError("Ftp", ErrNotSupportHijacking, err)
+		ctx.AccessLog.Status = "500 internal error ErrNotSupportHijacking"
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
+		return
+	}
+	hijConn := conn
+        logging.Printf("DEBUG", "doFtpUpstream: hijConn: %v\n", c2s(hijConn))
+	ctx.AccessLog.ProxyIP = hijConn.LocalAddr().String()
+	ctx.AccessLog.SourceIP = hijConn.RemoteAddr().String()
+	ctx.AccessLog.UpstreamProxyIP = ""
+
+	host := r.URL.Host
+	if !hasPort.MatchString(host) {
+		host += ":21"
+	}
+	ctx.AccessLog.ProxyIP = hijConn.LocalAddr().String()
+	ctx.AccessLog.SourceIP = hijConn.RemoteAddr().String()
+	ctx.AccessLog.UpstreamProxyIP = ""
+	conn, err = ctx.Prx.Dial(ctx, "tcp", host)
+        logging.Printf("DEBUG", "doFtpUpstream: Dial Conn: %v\n", c2s(conn))
+	if err != nil {
+		hijConn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+		hijConn.Close()
+		ctx.doError("Ftp", ErrRemoteConnect, err)
+		ctx.AccessLog.Status = "404 " + err.Error()
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
+		return
+	}
+	remoteConn := conn.(*net.TCPConn)
+        logging.Printf("DEBUG", "doFtpUpstream: Remote Conn: %v\n", c2s(remoteConn))
+	if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
+		hijConn.Close()
+		remoteConn.Close()
+		if !isConnectionClosed(err) {
+			ctx.doError("Ftp", ErrResponseWrite, err)
+			ctx.AccessLog.Status = "500 " + err.Error()
+			ctx.AccessLog.Endtime = time.Now()
+			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+			logging.AccesslogWrite(ctx.AccessLog)
+		}
+		return
+	}
+	if ctx.AccessLog.Status == "" {
+		// Proxy Dial sets status if a proxy is used
+		ctx.AccessLog.Status = "200 OK"
+	}
+	logging.Printf("DEBUG", "doFtpUpstream: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		defer func() {
+			e := recover()
+			err, ok := e.(error)
+			if !ok {
+				return
+			}
+			hijConn.Close()
+			remoteConn.Close()
+			if !isConnectionClosed(err) {
+				ctx.doError("Ftp", ErrRequestRead, err)
+				ctx.AccessLog.Status = "500 " + err.Error()
+			}
+		}()
+        logging.Printf("DEBUG", "doFtpUpstream: io.Copy(remoteConn, hijConn)")
+        logging.Printf("DEBUG", "doFtpUpstream: hijConn: %v\n", c2s(hijConn))
+        logging.Printf("DEBUG", "doFtpUpstream: remoteConn: %v\n", c2s(remoteConn))
+		n, err := io.Copy(remoteConn, hijConn)
+        logging.Printf("DEBUG", "doFtpUpstream: hijConn: read %d\n", n)
+		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + n
+		if err != nil {
+			panic(err)
+		}
+		remoteConn.CloseWrite()
+		if c, ok := hijConn.(*net.TCPConn); ok {
+			c.CloseRead()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		defer func() {
+			e := recover()
+			err, ok := e.(error)
+			if !ok {
+				return
+			}
+			hijConn.Close()
+			remoteConn.Close()
+			if !isConnectionClosed(err) {
+				ctx.doError("Ftp", ErrResponseWrite, err)
+				ctx.AccessLog.Status = "500 " + err.Error()
+			}
+		}()
+        logging.Printf("DEBUG", "doFtpUpstream: io.Copy(hijConn, remoteConn)")
+        logging.Printf("DEBUG", "doFtpUpstream: hijConn: %v\n", c2s(hijConn))
+        logging.Printf("DEBUG", "doFtpUpstream: remoteConn: %v\n", c2s(remoteConn))
+		n, err := io.Copy(hijConn, remoteConn)
+        logging.Printf("DEBUG", "doFtpUpstream: hijConn: wrote %d\n", n)
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + n
+		if err != nil {
+			panic(err)
+		}
+		remoteConn.CloseRead()
+		if c, ok := hijConn.(*net.TCPConn); ok {
+			c.CloseWrite()
+		}
+	}()
+	wg.Wait()
+	hijConn.Close()
+	remoteConn.Close()
+	logging.Printf("DEBUG", "doFtpUpstream: Connection closed. Session ID: %d\n", ctx.SessionNo)
+	ctx.AccessLog.Endtime = time.Now()
+	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+	logging.AccesslogWrite(ctx.AccessLog)
+
+	return
+}
+
 func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+
+	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
+	//	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
+
 	var ftpClient *goftp.Client
 	var err error
+	var respCode int
+	respHeader := http.Header{}
+
 
 	b = true
 	if r.URL.Scheme != "ftp" && r.URL.Scheme != "ftps" {
 		b = false
 		return
 	}
-	// Direct first
+
+	proxy := ctx.UpstreamProxy
+
+	if proxy != "" {
+		err := ctx.doFtpUpstream(w, r)
+		logging.Printf("DEBUG", "doFtp: Upstream proxy failed %v\n", err)
+		return
+	}
+
+	parsedURL, _ := url.Parse(r.URL.String())
+	port := parsedURL.Port()
 	host := r.URL.Host
-	user := "anonymous"
-	pass := "myproxy"
+	user := readconfig.Config.FTP.Username
+	pass := readconfig.Config.FTP.Password
 	if r.URL.User != nil {
 		user = r.URL.User.Username()
 		upass, set := r.URL.User.Password()
@@ -263,24 +438,27 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 			pass = upass
 		}
 	}
+	logging.Printf("DEBUG", "doFtp: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
 	logging.Printf("DEBUG", "doFtp: Set Username to %s Session ID: %d\n", user, ctx.SessionNo)
 	// Try to count bytes send & received based on log data
-	// It will miss 
-	// 	first 220 Header from server 
+	// It will miss
+	// 	first 220 Header from server
 	// 	Password length as it is hidden
-	// Also directory data count is not exact as size is converted to bytes, kB, MB, etc. 	
+	// Also directory data count is not exact as size is converted to bytes, kB, MB, etc.
 	// Creates only one access log entry with bytesIN & bytesOUT from control and data connection combined.
-	counterStorage := &byteCounterStorage{}
-	logWriter := &ftpLogWriter{bytes: counterStorage}
+	counterMap := make(map[int64]bytesCounter)
+	ftpBytesCounter := counterMap[ctx.SessionNo]
+	logWriter := &ftpLogWriter{bytes: &ftpBytesCounter}
 	ftpClientConfig := goftp.Config{
 		User:               user,
 		Password:           pass,
 		ConnectionsPerHost: 1,
-		Timeout:            5 * time.Second,
+		Timeout:            timeOut * time.Second,
 		Logger:             logWriter,
 	}
 	if !hasPort.MatchString(host) {
 		host += ":21"
+		port = "21"
 	}
 	ftpClient, err = goftp.DialConfig(ftpClientConfig, host)
 	defer ftpClient.Close()
@@ -289,18 +467,46 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.Status = "500 internal error"
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-		w.Header().Set("Content-Type", "text/plain")
 		if err.(goftp.Error).Code() == 530 {
 			ctx.AccessLog.Status = "403 login failed"
-			w.WriteHeader(http.StatusForbidden)
+			respCode = http.StatusForbidden
 		} else {
-			w.WriteHeader(http.StatusInternalServerError)
+			respCode = http.StatusInternalServerError
 		}
-		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN +  counterStorage.totalBytesRead
-		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+		respHeader.Set("Content-Type", "text/plain")
+		err = ServeInMemory(w, respCode, respHeader, nil)
+		if err != nil && !isConnectionClosed(err) {
+			ctx.doError("Response", ErrResponseWrite, err)
+		} else {
+			logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		}
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 		logging.AccesslogWrite(ctx.AccessLog)
 		return
 	}
+
+	// Use data conection creation to find remote IP
+    	rawConn, err := ftpClient.OpenRawConn()
+    	if err != nil {
+		logging.Printf("DEBUG", "doFtp: Error opening raw connection: %v\n",err)
+        	return
+    	}
+
+    	// Prepare the data connection
+    	dcGetter, err := rawConn.PrepareDataConn()
+    	if err != nil {
+		logging.Printf("DEBUG", "doFtp: Error preparing data connection: %v\n",err)
+        	return
+    	}
+	dataConn, err := dcGetter()
+    	if err != nil {
+		logging.Printf("DEBUG", "doFtp: Error getting data connection: %v\n",err)
+        	return
+    	}
+    	dataConn.Close()
+	remoteAddr := dataConn.RemoteAddr().(*net.TCPAddr)
+	ctx.AccessLog.DestinationIP = remoteAddr.IP.String()+":"+port
 
 	logging.Printf("DEBUG", "doFtp: Retrieving File/Dir Listing: \n")
 	buf := new(bytes.Buffer)
@@ -313,15 +519,22 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.Status = "500 internal error"
 				ctx.AccessLog.Endtime = time.Now()
 				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-				w.Header().Set("Content-Type", "text/plain")
 				if err.(goftp.Error).Code() == 530 {
 					ctx.AccessLog.Status = "403 login failed"
-					w.WriteHeader(http.StatusForbidden)
+					respCode = http.StatusForbidden
 				} else {
-					w.WriteHeader(http.StatusInternalServerError)
+					respCode = http.StatusInternalServerError
 				}
-				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
-				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+				respHeader.Set("Content-Type", "text/plain")
+				err = ServeInMemory(w, respCode, respHeader, nil)
+				if err != nil && !isConnectionClosed(err) {
+					ctx.doError("Response", ErrResponseWrite, err)
+				} else {
+					logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+				}
+
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				logging.AccesslogWrite(ctx.AccessLog)
 				return
 			} else {
@@ -333,28 +546,29 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 				logging.Printf("DEBUG", "doFtp: Directory Listing: \n")
 				logging.Printf("DEBUG", "doFtp: FTP Directory Listing: ftp://%s/%s\n", host, path)
 				logging.Printf("DEBUG", "doFtp: Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
-				w.Header().Set("Content-Type", "text/plain")
 				// Write the response body
-				fmt.Fprintf(w, "Directory Listing: \n")
-				fmt.Fprintf(w, "FTP Directory Listing: ftp://%s/%s\n", host, path)
-				fmt.Fprintf(w, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
+				fmt.Fprintf(buf, "Directory Listing: \n")
+				fmt.Fprintf(buf, "FTP Directory Listing: ftp://%s/%s\n", host, path)
+				fmt.Fprintf(buf, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
 				for _, file := range files {
 					if file.IsDir() {
 						logging.Printf("DEBUG", "doFtp: %s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
-						n, _ := fmt.Fprintf(w, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+						n, _ := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
 						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 					} else {
 						readableSize := formatSize(file.Size())
 						logging.Printf("DEBUG", "doFtp: %s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
-						n, _ := fmt.Fprintf(w, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+						n, _ := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
 						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 					}
 				}
+				respCode = 200
+				respHeader.Set("Content-Type", "text/plain")
 				ctx.AccessLog.Status = "200 OK"
 				ctx.AccessLog.Endtime = time.Now()
 				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
-				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				logging.AccesslogWrite(ctx.AccessLog)
 			}
 		} else {
@@ -362,28 +576,36 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Status = "500 internal error"
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
-			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 			logging.AccesslogWrite(ctx.AccessLog)
-			w.Header().Set("Content-Type", "text/plain")
-			w.WriteHeader(http.StatusInternalServerError)
+			respHeader.Set("Content-Type", "text/plain")
+			err = ServeInMemory(w, http.StatusInternalServerError, respHeader, nil)
+			if err != nil && !isConnectionClosed(err) {
+				ctx.doError("Response", ErrResponseWrite, err)
+			} else {
+				logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+			}
 			return
 		}
 	} else {
 		// logging.Printf("DEBUG", "doFtp: Session ID: %d Content: %s\n", ctx.SessionNo, buf)
-		w.Header().Set("Content-Type", "application/octet-stream")
-		n, _ := fmt.Fprintf(w, "%s", buf)
-		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+		respHeader.Set("Content-Type", "application/octet-stream")
+		respCode = 200
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(buf.Len())
 		ctx.AccessLog.Status = "200 OK"
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + counterStorage.totalBytesRead
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete."))
-		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + counterStorage.totalBytesWritten
+		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 		logging.AccesslogWrite(ctx.AccessLog)
 	}
-	logging.Printf("DEBUG", "doFtp: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
-
+	respHeader.Set("Connection", "close")
+	err = ServeInMemory(w, respCode, respHeader, buf.Bytes())
+	if err != nil && !isConnectionClosed(err) {
+		ctx.doError("doFtp", ErrResponseWrite, err)
+	}
 	return
 }
 
@@ -726,10 +948,10 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			ctx.doError("Response", ErrResponseWrite, err)
 		} else {
 			logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
-			ctx.AccessLog.Endtime = time.Now()
-			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-			logging.AccesslogWrite(ctx.AccessLog)
 		}
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
 		return err
 	}
 	if ctx.Prx.OnResponse != nil {
