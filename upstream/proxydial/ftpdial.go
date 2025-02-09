@@ -21,22 +21,19 @@ import (
 	// "github.com/yassinebenaid/godump"
 )
 
-func c2s(conn net.Conn) string {
-	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
-}
-
 // Dial for TLS connection using CONNECT method
-func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) {
+func FtpPrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
 	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
 	var err error
 	var host string
+	var buf []byte  
 	var conn net.Conn
 
 	proxy := ctx.UpstreamProxy
 
-	logging.Printf("DEBUG", "PrxDial: %s %s %s\n", network, address, proxy)
+	logging.Printf("DEBUG", "FtpPrxDial: %s %s %s\n", network, address, proxy)
 	ipos := strings.Index(address, ":")
 	if ipos > 0 {
 		host = address[0:ipos]
@@ -44,13 +41,15 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		host = address
 	}
 
-	if proxy != "" {
+	if proxy == "" {
+                logging.Printf("DEBUG", "FtpPrxDial: proxy not set\n")
+	} else {
 		newDial := net.Dialer{
 			Timeout:   timeOut * time.Second, // Set the timeout duration
 			KeepAlive: keepAlive * time.Second,
 		}
 		conn, err = newDial.Dial("tcp", proxy)
-		logging.Printf("DEBUG", "PrxDial: After Dial: %v\n", c2s(conn))
+		logging.Printf("DEBUG", "FtpPrxDial: After Dial: %v\n", c2s(conn))
 		// Overwrite upstream Proxy
 		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			Dial: func(network, addr string) (net.Conn, error) {
@@ -61,33 +60,33 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			},
 		}
 		// godump.Dump(ctx.Prx.Rt)
-		req := ctx.ConnectReq
+		req := ctx.Req
 		if err != nil {
-			logging.Printf("ERROR", "PrxDial: Error connecting to proxy: %s %v\n", proxy, err)
+			logging.Printf("ERROR", "FtpPrxDial: Error connecting to proxy: %s %v\n", proxy, err)
 			return nil, err
 		}
-		fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\n", address)
+		fmt.Fprintf(conn, "%s %s HTTP/1.1\r\n", req.Method,req.URL.String())
 		fmt.Fprintf(conn, "Host: %s\r\n", host)
 		fmt.Fprintf(conn, "Proxy-Connection: Keep-Alive\r\n")
 		fmt.Fprintf(conn, "\r\n")
 
 		resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 		if err != nil {
-			logging.Printf("ERROR", "PrxDial: Error reading response from proxy: %v\n", err)
+			logging.Printf("ERROR", "FtpPrxDial: Error reading response from proxy: %v\n", err)
 			return nil, err
 		}
 		ctx.AccessLog.Status = resp.Status
 		if resp.StatusCode == http.StatusProxyAuthRequired {
 			_, err = io.ReadAll(resp.Body)
 			if err != nil {
-				logging.Printf("ERROR", "PrxDial: Could not read response body from response: %v\n", err)
+				logging.Printf("ERROR", "FtpPrxDial: Could not read response body from response: %v\n", err)
 				return nil, err
 			}
 			defer resp.Body.Close()
 			// fake http for RoundTrip to not throw an error, but return hesder.
 			req.URL, err = url.Parse("http://" + address)
 			if err != nil {
-				logging.Printf("ERROR", "PrxDial: Creating request for proxy: %v\n", err)
+				logging.Printf("ERROR", "FtpPrxDial: Creating request for proxy: %v\n", err)
 				return nil, err
 			}
 			req.Header.Add("Proxy-Connection", "Keep-Alive")
@@ -98,24 +97,16 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = ""
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "PrxDial: Failed to connect to proxy response status: %s\n", resp.Status)
-			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
+			logging.Printf("ERROR", "FtpPrxDial: Failed to connect to proxy response status: %s\n", resp.Status)
+			return nil, errors.New("proxy connection failed, response " + strconv.Itoa(resp.StatusCode))
 		}
-
-	} else {
-		newDial := net.Dialer{
-			Timeout:   5 * time.Second, // Set the timeout duration
-			KeepAlive: 5 * time.Second,
-		}
-		conn, err = newDial.Dial("tcp", address)
+		buf, err = io.ReadAll(resp.Body)
+		_, err = conn.Write(buf)
 		if err != nil {
-			logging.Printf("ERROR", "PrxDial: Error connecting to adress: %s error: %v\n", address, err)
-			ctx.AccessLog.Status = "500 internal error"
+			logging.Printf("ERROR", "FtpPrxDial: Error sending body: %v\n", err)
 			return nil, err
 		}
-		ctx.AccessLog.UpstreamProxyIP = ""
-		ctx.AccessLog.Status = "200 connected to " + conn.RemoteAddr().String()
-		ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 	}
+
 	return conn, nil
 }

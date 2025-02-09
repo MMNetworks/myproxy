@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"myproxy/logging"
+	"myproxy/readconfig"
 	"net"
 	"net/http"
 	"os"
@@ -78,6 +79,7 @@ func NewProxy() (*Proxy, error) {
 // NewProxyCert returns a new Proxy given CA certificate and key.
 func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+
 	prx := &Proxy{
 		Rt: &http.Transport{TLSClientConfig: &tls.Config{},
 			Proxy: http.ProxyFromEnvironment,
@@ -105,9 +107,13 @@ func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 
 func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+
+	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
+	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
+
 	newDial := net.Dialer{
-		Timeout:   5 * time.Second, // Set the timeout duration
-		KeepAlive: 5 * time.Second,
+		Timeout:   timeOut * time.Second, // Set the timeout duration
+		KeepAlive: keepAlive * time.Second,
 	}
 
 	conn, err := newDial.Dial("tcp", address)

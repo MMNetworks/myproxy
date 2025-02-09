@@ -34,6 +34,14 @@ type Logging struct {
 	AccessLog string `yaml:"accesslog"`
 	Trace     bool   `yaml:"trace"`
 }
+type Connection struct {
+	Timeout   int `yaml:"timeout"`
+	Keepalive int `yaml:"keepalive"`
+}
+type FTP struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
 	NtlmDomain     string   `yaml:"NTLMDomain"`
@@ -50,10 +58,12 @@ type Proxy struct {
 	LocalBasicHash string   `yaml:"LocalBasicHash"`
 }
 type Schema struct {
-	PAC     PAC     `yaml:"pac"`
-	Proxy   Proxy   `yaml:"proxy"`
-	Listen  Listen  `yaml:"listen"`
-	Logging Logging `yaml:"logging"`
+	PAC        PAC        `yaml:"pac"`
+	Proxy      Proxy      `yaml:"proxy"`
+	Listen     Listen     `yaml:"listen"`
+	Logging    Logging    `yaml:"logging"`
+	Connection Connection `yaml:"connection`
+	FTP        FTP        `yaml:"ftp`
 }
 
 func ReadConfig(configFilename string) (*Schema, error) {
@@ -255,6 +265,18 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 	if configOut.Logging.Level == "" {
 		configOut.Logging.Level = "info"
+	}
+	if configOut.Connection.Timeout == 0 {
+		configOut.Connection.Timeout = 5
+	}
+	if configOut.Connection.Keepalive == 0 {
+		configOut.Connection.Keepalive = 10
+	}
+	if configOut.FTP.Username == "" {
+		configOut.FTP.Username = "anonymous"
+	}
+	if configOut.FTP.Password == "" {
+		configOut.FTP.Password = "anonymous@myproxy"
 	}
 	return &configOut, nil
 }
