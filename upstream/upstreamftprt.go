@@ -2,7 +2,6 @@ package upstream
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"myproxy/http-proxy"
@@ -11,7 +10,6 @@ import (
 	"myproxy/upstream/authenticate"
 	"net"
 	"net/http"
-	"strconv"
 	"time"
 	// "os"
 	// "github.com/yassinebenaid/godump"
@@ -51,7 +49,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		ctx.AccessLog.DestinationIP = ""
 		// godump.Dump(ctx.Prx.Rt)
 		if err != nil {
-			logging.Printf("ERROR", "FtpPrxDial: Error connecting to proxy: %s %v\n", proxy, err)
+			logging.Printf("ERROR", "FtpRoundTripper: Error connecting to proxy: %s %v\n", proxy, err)
 			return nil, err
 		}
 		host := req.URL.Host
@@ -65,13 +63,13 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 		resp, err = http.ReadResponse(bufio.NewReader(conn), req)
 		if err != nil {
-			logging.Printf("ERROR", "FtpPrxDial: Error reading response from proxy: %v\n", err)
+			logging.Printf("ERROR", "FtpRoundTripper: Error reading response from proxy: %v\n", err)
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusProxyAuthRequired {
 			_, err = io.ReadAll(resp.Body)
 			if err != nil {
-				logging.Printf("ERROR", "FtpPrxDial: Could not read response body from response: %v\n", err)
+				logging.Printf("ERROR", "FtpRoundTripper: Could not read response body from response: %v\n", err)
 				return nil, err
 			}
 			defer resp.Body.Close()
@@ -81,8 +79,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "FtpPrxDial: Failed to connect to proxy response status: %s\n", resp.Status)
-			return nil, errors.New("proxy connection failed, response " + strconv.Itoa(resp.StatusCode))
+			logging.Printf("ERROR", "FtpRoundTripper: Failed to connect to proxy response status: %s\n", resp.Status)
 		}
 	}
 
