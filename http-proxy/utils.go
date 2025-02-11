@@ -48,6 +48,7 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 	if resp.Body != nil {
 		defer resp.Body.Close()
 	}
+
 	h := w.Header()
 	for k, v := range resp.Header {
 		for _, v1 := range v {
@@ -127,7 +128,7 @@ func ServeInMemory(w http.ResponseWriter, code int, header http.Header, body []b
 	return ServeResponse(w, InMemoryResponse(code, header, body))
 }
 
-var hasPort = regexp.MustCompile(`:\d+$`)
+var HasPort = regexp.MustCompile(`:\d+$`)
 
 func stripPort(s string) string {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
