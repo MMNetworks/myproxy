@@ -245,162 +245,97 @@ func formatSize(bytes int64) string {
 }
 
 func c2s(conn net.Conn) string {
-        return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
+	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
 }
 
-func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (b bool) {
+func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 
 	proxy := ctx.UpstreamProxy
 
-	b = true
 	if proxy == "" {
 		logging.Printf("DEBUG", "doFtpUpstream: proxy not set\n")
-		b = false
-		return
+		return true, nil
 	}
-
-	hij, ok := w.(http.Hijacker)
-	if !ok {
-		if r.Body != nil {
-			defer r.Body.Close()
-		}
-		ctx.doError("Ftp", ErrNotSupportHijacking, nil)
-		ctx.AccessLog.Status = "500 internal error ErrNotSupportHijacking"
-		ctx.AccessLog.Endtime = time.Now()
-		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-		logging.AccesslogWrite(ctx.AccessLog)
-		return
-	}
-	conn, _, err := hij.Hijack()
-	if err != nil {
-		if r.Body != nil {
-			defer r.Body.Close()
-		}
-		ctx.doError("Ftp", ErrNotSupportHijacking, err)
-		ctx.AccessLog.Status = "500 internal error ErrNotSupportHijacking"
-		ctx.AccessLog.Endtime = time.Now()
-		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-		logging.AccesslogWrite(ctx.AccessLog)
-		return
-	}
-	hijConn := conn
-        logging.Printf("DEBUG", "doFtpUpstream: hijConn: %v\n", c2s(hijConn))
-	ctx.AccessLog.ProxyIP = hijConn.LocalAddr().String()
-	ctx.AccessLog.SourceIP = hijConn.RemoteAddr().String()
-	ctx.AccessLog.UpstreamProxyIP = ""
 
 	host := r.URL.Host
-	if !hasPort.MatchString(host) {
+	if !HasPort.MatchString(host) {
 		host += ":21"
 	}
-	ctx.AccessLog.ProxyIP = hijConn.LocalAddr().String()
-	ctx.AccessLog.SourceIP = hijConn.RemoteAddr().String()
-	ctx.AccessLog.UpstreamProxyIP = ""
-	conn, err = ctx.Prx.Dial(ctx, "tcp", host)
-        logging.Printf("DEBUG", "doFtpUpstream: Dial Conn: %v\n", c2s(conn))
+	logging.Printf("DEBUG", "doFtpUpstream: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	if err != nil {
-		hijConn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
-		hijConn.Close()
 		ctx.doError("Ftp", ErrRemoteConnect, err)
-		ctx.AccessLog.Status = "404 " + err.Error()
+		if resp != nil {
+			ctx.AccessLog.Status = resp.Status
+		} else {
+			ctx.AccessLog.Status = "404 " + err.Error()
+		}
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
-		return
+		return false, err
 	}
-	remoteConn := conn.(*net.TCPConn)
-        logging.Printf("DEBUG", "doFtpUpstream: Remote Conn: %v\n", c2s(remoteConn))
-	if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-		hijConn.Close()
-		remoteConn.Close()
-		if !isConnectionClosed(err) {
-			ctx.doError("Ftp", ErrResponseWrite, err)
-			ctx.AccessLog.Status = "500 " + err.Error()
-			ctx.AccessLog.Endtime = time.Now()
-			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-			logging.AccesslogWrite(ctx.AccessLog)
-		}
-		return
-	}
-	if ctx.AccessLog.Status == "" {
-		// Proxy Dial sets status if a proxy is used
-		ctx.AccessLog.Status = "200 OK"
-	}
-	logging.Printf("DEBUG", "doFtpUpstream: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+	bodySize := r.ContentLength
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		defer func() {
-			e := recover()
-			err, ok := e.(error)
-			if !ok {
-				return
-			}
-			hijConn.Close()
-			remoteConn.Close()
-			if !isConnectionClosed(err) {
-				ctx.doError("Ftp", ErrRequestRead, err)
-				ctx.AccessLog.Status = "500 " + err.Error()
-			}
-		}()
-        logging.Printf("DEBUG", "doFtpUpstream: io.Copy(remoteConn, hijConn)")
-        logging.Printf("DEBUG", "doFtpUpstream: hijConn: %v\n", c2s(hijConn))
-        logging.Printf("DEBUG", "doFtpUpstream: remoteConn: %v\n", c2s(remoteConn))
-		n, err := io.Copy(remoteConn, hijConn)
-        logging.Printf("DEBUG", "doFtpUpstream: hijConn: read %d\n", n)
-		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + n
-		if err != nil {
-			panic(err)
+	headerSize := 0
+	for name, values := range r.Header {
+		for _, value := range values {
+			headerSize += len(name) + len(value) + len(": ") + len("\r\n")
 		}
-		remoteConn.CloseWrite()
-		if c, ok := hijConn.(*net.TCPConn); ok {
-			c.CloseRead()
+	}
+	// it seems host header information is moved to different entries in structure
+	if r.Host == "" {
+		headerSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
+		if !HasPort.MatchString(r.URL.Host) {
+			headerSize += 3
 		}
-	}()
-	go func() {
-		defer wg.Done()
-		defer func() {
-			e := recover()
-			err, ok := e.(error)
-			if !ok {
-				return
+	} else {
+		headerSize += len("Host: ") + len(r.Host) + len("\r\n")
+		if !HasPort.MatchString(r.Host) {
+			headerSize += 3
+		}
+	}
+	// Adding the size of the initial request line and the final empty line
+	requestLineSize := len(r.Method) + 1 + len(r.URL.String()) + len(" HTTP/1.1\r\n")
+	finalEmptyLineSize := len("\r\n")
+	// Calculate the total request size
+	totalSize := requestLineSize + headerSize + int(bodySize) + finalEmptyLineSize
+	ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(totalSize)
+
+	ctx.AccessLog.Status = resp.Status
+	resp.Request = r
+	resp.TransferEncoding = nil
+	err = ServeResponse(w, resp)
+	if err != nil && !isConnectionClosed(err) {
+		ctx.doError("Request", ErrResponseWrite, err)
+		ctx.AccessLog.Status = "500 " + err.Error()
+	} else {
+		bodySize := resp.ContentLength
+		// Calculate the size of the headers
+		headerSize := 0
+		for name, values := range resp.Header {
+			for _, value := range values {
+				// Via header added by this proxy to client
+				if strings.ToUpper(name) != "VIA" {
+					headerSize += len(name) + len(value) + len(": ") + len("\r\n")
+				}
 			}
-			hijConn.Close()
-			remoteConn.Close()
-			if !isConnectionClosed(err) {
-				ctx.doError("Ftp", ErrResponseWrite, err)
-				ctx.AccessLog.Status = "500 " + err.Error()
-			}
-		}()
-        logging.Printf("DEBUG", "doFtpUpstream: io.Copy(hijConn, remoteConn)")
-        logging.Printf("DEBUG", "doFtpUpstream: hijConn: %v\n", c2s(hijConn))
-        logging.Printf("DEBUG", "doFtpUpstream: remoteConn: %v\n", c2s(remoteConn))
-		n, err := io.Copy(hijConn, remoteConn)
-        logging.Printf("DEBUG", "doFtpUpstream: hijConn: wrote %d\n", n)
-		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + n
-		if err != nil {
-			panic(err)
 		}
-		remoteConn.CloseRead()
-		if c, ok := hijConn.(*net.TCPConn); ok {
-			c.CloseWrite()
-		}
-	}()
-	wg.Wait()
-	hijConn.Close()
-	remoteConn.Close()
+		headerEmptyLineSize := len("\r\n")
+		responseLineSize := len(resp.Status) + len(" HTTP/1.1\r\n")
+		// Calculate the total request size
+		totalSize := responseLineSize + headerSize + headerEmptyLineSize + int(bodySize)
+		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(totalSize)
+	}
 	logging.Printf("DEBUG", "doFtpUpstream: Connection closed. Session ID: %d\n", ctx.SessionNo)
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)
-
-	return
+	return true, err
 }
 
-func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
+func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 
 	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
@@ -411,19 +346,15 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 	var respCode int
 	respHeader := http.Header{}
 
-
-	b = true
 	if r.URL.Scheme != "ftp" && r.URL.Scheme != "ftps" {
-		b = false
-		return
+		return false, nil
 	}
 
 	proxy := ctx.UpstreamProxy
 
 	if proxy != "" {
-		err := ctx.doFtpUpstream(w, r)
-		logging.Printf("DEBUG", "doFtp: Upstream proxy failed %v\n", err)
-		return
+		return ctx.doFtpUpstream(w, r)
+
 	}
 
 	parsedURL, _ := url.Parse(r.URL.String())
@@ -456,7 +387,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 		Timeout:            timeOut * time.Second,
 		Logger:             logWriter,
 	}
-	if !hasPort.MatchString(host) {
+	if !HasPort.MatchString(host) {
 		host += ":21"
 		port = "21"
 	}
@@ -469,44 +400,35 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		if err.(goftp.Error).Code() == 530 {
 			ctx.AccessLog.Status = "403 login failed"
-			respCode = http.StatusForbidden
-		} else {
-			respCode = http.StatusInternalServerError
-		}
-		respHeader.Set("Content-Type", "text/plain")
-		err = ServeInMemory(w, respCode, respHeader, nil)
-		if err != nil && !isConnectionClosed(err) {
-			ctx.doError("Response", ErrResponseWrite, err)
-		} else {
-			logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		}
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 		logging.AccesslogWrite(ctx.AccessLog)
-		return
+		return false, err
 	}
 
 	// Use data conection creation to find remote IP
-    	rawConn, err := ftpClient.OpenRawConn()
-    	if err != nil {
-		logging.Printf("DEBUG", "doFtp: Error opening raw connection: %v\n",err)
-        	return
-    	}
+	rawConn, err := ftpClient.OpenRawConn()
+	if err != nil {
+		logging.Printf("DEBUG", "doFtp: Error opening raw connection: %v\n", err)
+		return false, err
+	}
 
-    	// Prepare the data connection
-    	dcGetter, err := rawConn.PrepareDataConn()
-    	if err != nil {
-		logging.Printf("DEBUG", "doFtp: Error preparing data connection: %v\n",err)
-        	return
-    	}
+	// Prepare the data connection
+	dcGetter, err := rawConn.PrepareDataConn()
+	if err != nil {
+		logging.Printf("DEBUG", "doFtp: Error preparing data connection: %v\n", err)
+		return false, err
+	}
 	dataConn, err := dcGetter()
-    	if err != nil {
-		logging.Printf("DEBUG", "doFtp: Error getting data connection: %v\n",err)
-        	return
-    	}
-    	dataConn.Close()
+	if err != nil {
+		logging.Printf("DEBUG", "doFtp: Error getting data connection: %v\n", err)
+		return false, err
+	}
+	dataConn.Close()
 	remoteAddr := dataConn.RemoteAddr().(*net.TCPAddr)
-	ctx.AccessLog.DestinationIP = remoteAddr.IP.String()+":"+port
+	// Replace high port of data connection with control connection port
+	ctx.AccessLog.DestinationIP = remoteAddr.IP.String() + ":" + port
 
 	logging.Printf("DEBUG", "doFtp: Retrieving File/Dir Listing: \n")
 	buf := new(bytes.Buffer)
@@ -521,22 +443,11 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 				if err.(goftp.Error).Code() == 530 {
 					ctx.AccessLog.Status = "403 login failed"
-					respCode = http.StatusForbidden
-				} else {
-					respCode = http.StatusInternalServerError
 				}
-				respHeader.Set("Content-Type", "text/plain")
-				err = ServeInMemory(w, respCode, respHeader, nil)
-				if err != nil && !isConnectionClosed(err) {
-					ctx.doError("Response", ErrResponseWrite, err)
-				} else {
-					logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
-				}
-
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				logging.AccesslogWrite(ctx.AccessLog)
-				return
+				return false, err
 			} else {
 				hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
 				path := r.URL.Path
@@ -579,14 +490,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 			logging.AccesslogWrite(ctx.AccessLog)
-			respHeader.Set("Content-Type", "text/plain")
-			err = ServeInMemory(w, http.StatusInternalServerError, respHeader, nil)
-			if err != nil && !isConnectionClosed(err) {
-				ctx.doError("Response", ErrResponseWrite, err)
-			} else {
-				logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
-			}
-			return
+			return false, err
 		}
 	} else {
 		// logging.Printf("DEBUG", "doFtp: Session ID: %d Content: %s\n", ctx.SessionNo, buf)
@@ -606,7 +510,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (b bool) {
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("doFtp", ErrResponseWrite, err)
 	}
-	return
+	return true, err
 }
 
 func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
@@ -649,7 +553,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	ctx.ConnectReq = r
 	ctx.ConnectAction = ConnectProxy
 	host := r.URL.Host
-	if !hasPort.MatchString(host) {
+	if !HasPort.MatchString(host) {
 		host += ":80"
 	}
 	if ctx.Prx.OnConnect != nil {
@@ -659,7 +563,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			host = newHost
 		}
 	}
-	if !hasPort.MatchString(host) {
+	if !HasPort.MatchString(host) {
 		host += ":80"
 	}
 	ctx.ConnectHost = host
@@ -885,6 +789,11 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 		}
 		return true, err
 	}
+
+	if r.URL.Scheme == "ftp" {
+		return ctx.doFtp(w, r)
+	}
+
 	r.RequestURI = r.URL.String()
 	logging.Printf("DEBUG", "doRequest: New Connection to %s Session ID: %d\n", r.URL.Host, ctx.SessionNo)
 	if ctx.Prx.OnRequest == nil {
@@ -918,25 +827,25 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	bodySize := r.ContentLength
 
-	headersSize := 0
+	headerSize := 0
 	for name, values := range r.Header {
 		for _, value := range values {
-			headersSize += len(name) + len(value) + len(": ") + len("\r\n")
+			headerSize += len(name) + len(value) + len(": ") + len("\r\n")
 		}
 	}
 	// it seems host header information is moved to different entries in structure
 	if r.Host == "" {
-		headersSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
+		headerSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
 	} else {
-		headersSize += len("Host: ") + len(r.Host) + len("\r\n")
+		headerSize += len("Host: ") + len(r.Host) + len("\r\n")
 	}
 	// Added by roundtripper in transport request as extra header to server.
-	headersSize += len("Accept-Encoding: gzip\r\n")
+	headerSize += len("Accept-Encoding: gzip\r\n")
 	// Adding the size of the initial request line and the final empty line
-	requestLineSize := len(r.Method) + 1 + len(r.URL.Path) + len(" HTTP/1.1\r\n")
+	requestLineSize := len(r.Method) + 1 + len(r.URL.String()) + len(" HTTP/1.1\r\n")
 	finalEmptyLineSize := len("\r\n")
 	// Calculate the total request size
-	totalSize := requestLineSize + headersSize + int(bodySize) + finalEmptyLineSize
+	totalSize := requestLineSize + headerSize + int(bodySize) + finalEmptyLineSize
 	ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(totalSize)
 	if err != nil {
 		if err != context.Canceled && !isConnectionClosed(err) {
@@ -946,9 +855,8 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		err := ServeInMemory(w, 404, nil, nil)
 		if err != nil && !isConnectionClosed(err) {
 			ctx.doError("Response", ErrResponseWrite, err)
-		} else {
-			logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		}
+		logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
@@ -967,25 +875,25 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		ctx.doError("Response", ErrResponseWrite, err)
 		ctx.AccessLog.Status = "500 " + err.Error()
 	} else {
-		logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		ctx.AccessLog.Status = resp.Status
 		bodySize := resp.ContentLength
 		// Calculate the size of the headers
-		headersSize := 0
+		headerSize := 0
 		for name, values := range resp.Header {
 			for _, value := range values {
 				// Via header added by this proxy to client
 				if strings.ToUpper(name) != "VIA" {
-					headersSize += len(name) + len(value) + len(": ") + len("\r\n")
+					headerSize += len(name) + len(value) + len(": ") + len("\r\n")
 				}
 			}
 		}
 		headerEmptyLineSize := len("\r\n")
 		responseLineSize := len(resp.Status) + len(" HTTP/1.1\r\n")
 		// Calculate the total request size
-		totalSize := responseLineSize + headersSize + headerEmptyLineSize + int(bodySize)
+		totalSize := responseLineSize + headerSize + headerEmptyLineSize + int(bodySize)
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(totalSize)
 	}
+	logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)

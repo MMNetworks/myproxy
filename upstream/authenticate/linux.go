@@ -39,30 +39,30 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 		logging.Printf("ERROR", "DoNTLMProxyAuth: RoundTrip error(should not happen!): %v\n", err)
 		if ntlmResp == nil {
 			logging.Printf("ERROR", "DoNTLMProxyAuth: no ntlmresp RoundTrip error: %v\n", err)
-			overwriteResponse(resp, ntlmResp)
+			OverwriteResponse(resp, ntlmResp)
 			return err
 		} else if ntlmResp.StatusCode != http.StatusProxyAuthRequired {
 			logging.Printf("ERROR", "DoNTLMProxyAuth: RoundTrip error: %v\n", err)
-			overwriteResponse(resp, ntlmResp)
+			OverwriteResponse(resp, ntlmResp)
 			return err
 		}
 	}
 	if ntlmResp.StatusCode != http.StatusProxyAuthRequired {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: Auth next %s, Error: %v\n", ntlmResp.Header.Get("Proxy-Authenticate"), err)
-		overwriteResponse(resp, ntlmResp)
+		OverwriteResponse(resp, ntlmResp)
 		return err
 	}
 	challenge := strings.Split(ntlmResp.Header.Get("Proxy-Authenticate"), " ")
 	if len(challenge) < 2 {
 		logging.Printf("DEBUG", "DoNTLMProxyAuth: ntlm> The proxy did not return an NTLM challenge, got: '%s'\n", ntlmResp.Header.Get("Proxy-Authenticate"))
-		overwriteResponse(resp, ntlmResp)
+		OverwriteResponse(resp, ntlmResp)
 		return errors.New("no NTLM challenge received")
 	}
 	logging.Printf("DEBUG", "DoNTLMProxyAuth: ntlm> NTLM challenge: '%s'\n", challenge[1])
 	challengeMessage, err := base64.StdEncoding.DecodeString(challenge[1])
 	if err != nil {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: ntlm> Could not base64 decode the NTLM challenge: %v\n", err)
-		overwriteResponse(resp, ntlmResp)
+		OverwriteResponse(resp, ntlmResp)
 		return err
 	}
 	// NTLM Step 3: Send Authorization Message
@@ -70,7 +70,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 	authenticateMessage, err := ntlmssp.ProcessChallenge(challengeMessage, proxyUsername, proxyPassword, false)
 	if err != nil {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: ntlm> Could not process the NTLM challenge: %v\n", err)
-		overwriteResponse(resp, ntlmResp)
+		OverwriteResponse(resp, ntlmResp)
 		return err
 	}
 	logging.Printf("DBEUG", "DoNTLMProxyAuth: ntlm> NTLM authorization: '%s'\n", base64.StdEncoding.EncodeToString(authenticateMessage))
@@ -82,13 +82,13 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 		return errors.New("empty response received")
 	} else if ntlmResp.StatusCode == http.StatusProxyAuthRequired {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: Failed\n")
-		overwriteResponse(resp, ntlmResp)
+		OverwriteResponse(resp, ntlmResp)
 		return errors.New("no NTLM OK received")
 	} else {
 		logging.Printf("DEBUG", "DoNTLMProxyAuth: Result %d\n", ntlmResp.StatusCode)
 	}
 
-	overwriteResponse(resp, ntlmResp)
+	OverwriteResponse(resp, ntlmResp)
 	logging.Printf("DEBUG", "DoNTLMProxyAuth: Auth done\n")
 	return nil
 }
@@ -169,11 +169,11 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		logging.Printf("ERROR", "DoNegotiateProxyAuth: RoundTrip error(should not happen!): %v\n", err)
 		if negoResp == nil {
 			logging.Printf("ERROR", "DoNegotiateProxyAuth: no negoresp RoundTrip error: %v\n", err)
-			overwriteResponse(resp, negoResp)
+			OverwriteResponse(resp, negoResp)
 			return err
 		} else if negoResp.StatusCode != http.StatusProxyAuthRequired {
 			logging.Printf("ERROR", "DoNegotiateProxyAuth: RoundTrip error: %v\n", err)
-			overwriteResponse(resp, negoResp)
+			OverwriteResponse(resp, negoResp)
 			return err
 		}
 	}
@@ -183,14 +183,14 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		challenge := strings.Split(negoResp.Header.Get("Proxy-Authenticate"), " ")
 		if len(challenge) < 2 {
 			logging.Printf("ERROR", "DoNegotiateProxyAuth: nego> The proxy did not return an negotiate challenge, got: '%s'\n", negoResp.Header.Get("Proxy-Authenticate"))
-			overwriteResponse(resp, negoResp)
+			OverwriteResponse(resp, negoResp)
 			return errors.New("no Negotiate challenge received")
 		}
 		logging.Printf("DEBUG", "DoNegotiateProxyAuth: nego> negotiate challenge: '%s'\n", challenge[1])
 		challengeMessage, err := base64.StdEncoding.DecodeString(challenge[1])
 		if err != nil {
 			logging.Printf("ERROR", "DoNegotiateProxyAuth: nego> Could not base64 decode the Negotiate challenge: %v\n", err)
-			overwriteResponse(resp, negoResp)
+			OverwriteResponse(resp, negoResp)
 			return err
 		}
 		logging.Printf("DEBUG", "DoNegotiateProxyAuth: nego> negotiate authorization '%s'\n", base64.StdEncoding.EncodeToString(challengeMessage))
@@ -203,14 +203,14 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		//	r.Header.Del("Proxy-Authorization")
 		//	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
 		//	negoResp, err = ctx.Prx.Rt.RoundTrip(r)
-		overwriteResponse(resp, negoResp)
+		OverwriteResponse(resp, negoResp)
 		return errors.New("additional negotiate round required")
 		//	} else if negoResp.StatusCode != http.StatusOK {
 		//		logging.Printf("INFO: Proxy: DoNegotiateProxyAuth: Failed %d\n",negoResp.StatusCode)
 		//		return errors.New("no negotiate OK received")
 	}
 
-	overwriteResponse(resp, negoResp)
+	OverwriteResponse(resp, negoResp)
 	logging.Printf("DEBUG", "DoNegotiateProxyAuth: Auth done\n")
 	return nil
 }

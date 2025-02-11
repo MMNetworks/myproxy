@@ -70,6 +70,12 @@ type Proxy struct {
 	signer *CaSigner
 }
 
+// var ctx *Context
+
+//func GetContext() *Context {
+//	return ctx
+//}
+
 // NewProxy returns a new Proxy has default CA certificate and key.
 func NewProxy() (*Proxy, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
@@ -131,8 +137,8 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 
 // ServeHTTP implements http.Handler.
 func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx := &Context{Prx: prx, SessionNo: atomic.AddInt64(&prx.SessionNo, 1)}
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	ctx := &Context{Prx: prx, SessionNo: atomic.AddInt64(&prx.SessionNo, 1)}
 
 	defer func() {
 		rec := recover()
@@ -195,10 +201,6 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Del("Proxy-Authorization")
 
 	if b := ctx.doConnect(w, r); b {
-		return
-	}
-
-	if b := ctx.doFtp(w, r); b {
 		return
 	}
 

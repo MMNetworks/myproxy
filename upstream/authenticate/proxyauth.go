@@ -79,34 +79,34 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 			return err
 		} else if basicResp.StatusCode != http.StatusProxyAuthRequired {
 			logging.Printf("ERROR", "DoBasicProxyAuth: RoundTrip error: %v\n", err)
-			overwriteResponse(resp, basicResp)
+			OverwriteResponse(resp, basicResp)
 			return err
 		}
 	}
 
-	overwriteResponse(resp, basicResp)
+	OverwriteResponse(resp, basicResp)
 	logging.Printf("DEBUG", "DoBasicProxyAuth: Auth done\n")
 	return nil
 }
 
-func overwriteResponse(orgResp *http.Response, newResp *http.Response) {
+func OverwriteResponse(orgResp *http.Response, newResp *http.Response) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	// Replace original response
 	if newResp == nil {
-		logging.Printf("DEBUG", "overwriteResponse: empty response\n")
+		logging.Printf("DEBUG", "OverwriteResponse: empty response\n")
 		return
 	}
 	orgResp.StatusCode = newResp.StatusCode
 	orgResp.Status = newResp.Status
 	for k, _ := range orgResp.Header {
 		orgResp.Header.Del(k)
-		logging.Printf("DEBUG", "overwriteResponse: delete header %s\n", k)
+		logging.Printf("DEBUG", "OverwriteResponse: delete header %s\n", k)
 	}
 	for k, v := range newResp.Header {
 		for i := 0; i < len(v); i++ {
 			orgResp.Header.Add(k, v[i])
 		}
-		logging.Printf("DEBUG", "overwriteResponse: add header %s=%s\n", k, v)
+		logging.Printf("DEBUG", "OverwriteResponse: add header %s=%s\n", k, v)
 	}
 	if newResp.Body != http.NoBody {
 		orgResp.Body = newResp.Body

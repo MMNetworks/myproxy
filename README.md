@@ -126,6 +126,9 @@ logging:
   file: "log_9080"
   trace: true
   accesslog: "access.log"
+connection:
+  timeout: 5
+  keepalive: 5
 pac:
   type: "FILE"
   url: "http://pac.com/pac_file"

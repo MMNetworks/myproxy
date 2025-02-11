@@ -27,6 +27,9 @@ var pac *gpac.Parser
 
 func SetProxy(ctx *httpproxy.Context) error {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+
+	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
+	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
 	var err error
 	var buf []byte
 	var transport *http.Transport
@@ -147,8 +150,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 				logging.Printf("DEBUG", "SetProxy: Dial %s\n", v.Address)
 				// test proxy port
 				connectCheck := net.Dialer{
-					Timeout:   5 * time.Second, // Set the timeout duration
-					KeepAlive: 5 * time.Second,
+					Timeout:   timeOut * time.Second, // Set the timeout duration
+					KeepAlive: keepAlive * time.Second,
 				}
 				conn, err := connectCheck.Dial("tcp", v.Address)
 				if err != nil {
@@ -207,8 +210,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 			Proxy: http.ProxyURL(proxyURL),
 			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 				conn, err := (&net.Dialer{
-					Timeout:   5 * time.Second,
-					KeepAlive: 5 * time.Second,
+					Timeout:   timeOut * time.Second,
+					KeepAlive: keepAlive * time.Second,
 				}).DialContext(dctx, network, addr)
 				if err != nil {
 					return nil, err
@@ -219,8 +222,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 			},
 			Dial: func(network, addr string) (net.Conn, error) {
 				conn, err := (&net.Dialer{
-					Timeout:   5 * time.Second,
-					KeepAlive: 5 * time.Second,
+					Timeout:   timeOut * time.Second,
+					KeepAlive: keepAlive * time.Second,
 				}).Dial(network, addr)
 				if err != nil {
 					return nil, err
@@ -230,6 +233,13 @@ func SetProxy(ctx *httpproxy.Context) error {
 				return conn, nil
 			},
 		}
+		if strings.ToUpper(ctx.Req.URL.Scheme) == "FTP" {
+			ctx.Prx.Rt = &FtpRoundTripper{
+				GetContext: func() *httpproxy.Context {
+					return ctx
+				},
+			}
+		}
 		// Use upstream Proxy for CONNECT
 		ctx.Prx.Dial = proxydial.PrxDial
 		ctx.UpstreamProxy = proxyFQDN + ":" + proxyPort
@@ -238,8 +248,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 				conn, err := (&net.Dialer{
-					Timeout:   5 * time.Second,
-					KeepAlive: 5 * time.Second,
+					Timeout:   timeOut * time.Second,
+					KeepAlive: keepAlive * time.Second,
 				}).DialContext(dctx, network, addr)
 				if err != nil {
 					return nil, err
@@ -249,8 +259,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 			},
 			Dial: func(network, addr string) (net.Conn, error) {
 				conn, err := (&net.Dialer{
-					Timeout:   5 * time.Second,
-					KeepAlive: 5 * time.Second,
+					Timeout:   timeOut * time.Second,
+					KeepAlive: keepAlive * time.Second,
 				}).Dial(network, addr)
 				if err != nil {
 					return nil, err
