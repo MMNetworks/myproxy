@@ -244,15 +244,15 @@ func formatSize(bytes int64) string {
 	}
 }
 
-func c2s(conn net.Conn) string {
-	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
-}
-
 func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 
 	proxy := ctx.UpstreamProxy
 
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
+	
 	if proxy == "" {
 		logging.Printf("DEBUG", "doFtpUpstream: proxy not set\n")
 		return true, nil
@@ -262,6 +262,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	if !HasPort.MatchString(host) {
 		host += ":21"
 	}
+
 	logging.Printf("DEBUG", "doFtpUpstream: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
 	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	if err != nil {
@@ -274,6 +275,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
+		logging.Printf("DEBUG", "doFtpUpstream: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
 	bodySize := r.ContentLength
@@ -346,6 +348,10 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	var respCode int
 	respHeader := http.Header{}
 
+	if r.Body != nil {
+		defer r.Body.Close()
+	}
+	
 	if r.URL.Scheme != "ftp" && r.URL.Scheme != "ftps" {
 		return false, nil
 	}
@@ -369,6 +375,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			pass = upass
 		}
 	}
+
 	logging.Printf("DEBUG", "doFtp: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
 	logging.Printf("DEBUG", "doFtp: Set Username to %s Session ID: %d\n", user, ctx.SessionNo)
 	// Try to count bytes send & received based on log data
@@ -404,6 +411,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 		logging.AccesslogWrite(ctx.AccessLog)
+		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
 
@@ -411,6 +419,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	rawConn, err := ftpClient.OpenRawConn()
 	if err != nil {
 		logging.Printf("DEBUG", "doFtp: Error opening raw connection: %v\n", err)
+		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
 
@@ -418,11 +427,13 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	dcGetter, err := rawConn.PrepareDataConn()
 	if err != nil {
 		logging.Printf("DEBUG", "doFtp: Error preparing data connection: %v\n", err)
+		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
 	dataConn, err := dcGetter()
 	if err != nil {
 		logging.Printf("DEBUG", "doFtp: Error getting data connection: %v\n", err)
+		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
 	dataConn.Close()
@@ -447,6 +458,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				logging.AccesslogWrite(ctx.AccessLog)
+				logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 				return false, err
 			} else {
 				hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
@@ -490,6 +502,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 			logging.AccesslogWrite(ctx.AccessLog)
+			logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 			return false, err
 		}
 	} else {
@@ -510,6 +523,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("doFtp", ErrResponseWrite, err)
 	}
+	logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 	return true, err
 }
 
@@ -815,6 +829,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Request", ErrResponseWrite, err)
 	}
+	logging.Printf("DEBUG", "doRequest: Connection closed. Session ID: %d\n", ctx.SessionNo)
 	return true, err
 }
 
