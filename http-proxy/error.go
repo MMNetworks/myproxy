@@ -43,9 +43,15 @@ func (e *Error) Error() string {
 
 func isConnectionClosed(err error) bool {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+
 	if err == nil {
 		return false
 	}
+
+	if err == io.EOF {
+		return true
+	}
+
 	opErr, ok := err.(*net.OpError)
 	if ok {
 		switch {

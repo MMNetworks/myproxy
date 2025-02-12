@@ -758,6 +758,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			return
 		}
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
+		logging.Printf("DEBUG", "doConnect: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
 		b = false
 	default:
 		hijConn.Close()
@@ -787,6 +788,10 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	req.URL.Host = ctx.ConnectHost
 	w = NewConnResponseWriter(ctx.hijTLSConn)
 	r = req
+        ctx.AccessLog.Method = r.Method
+        ctx.AccessLog.Scheme = r.URL.Scheme
+        ctx.AccessLog.Url = r.URL.String()
+        ctx.AccessLog.Version = r.Proto
 	return
 }
 

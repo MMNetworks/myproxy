@@ -58,7 +58,8 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	return httpproxy.ConnectProxy, host
+	return httpproxy.ConnectMitm, host
+	//return httpproxy.ConnectProxy, host
 	// Apply "Man in the Middle" to all ssl connections. Never change host.
 	//return httpproxy.ConnectMitm, host
 }
@@ -134,8 +135,24 @@ func runProxy(args []string) {
 	logging.Printf("INFO", "runProxy: Proxy.LocalBasicUser: %s\n", readconfig.Config.Proxy.LocalBasicUser)
 	logging.Printf("INFO", "runProxy: Proxy.LocalBasicHash: %s\n", readconfig.Config.Proxy.LocalBasicHash)
 
+	if readconfig.Config.MITM.Enable {
+		logging.Printf("INFO", "runProxy: Certfile: %s\n", readconfig.Config.MITM.Certfile)
+		logging.Printf("INFO", "runProxy: Keyfile: %s\n", readconfig.Config.MITM.Keyfile)
+		if readconfig.Config.MITM.Cert != "" {
+			logging.Printf("INFO", "runProxy: Cert set\n")
+		}
+		if readconfig.Config.MITM.Key != "" {
+			logging.Printf("INFO", "runProxy: Key set\n")
+		}
+	}
+
 	// Create a new proxy with default certificate pair.
-	prx, _ := httpproxy.NewProxy()
+	var prx *httpproxy.Proxy	
+	if readconfig.Config.MITM.Enable {
+		prx, _ = httpproxy.NewProxyCert([]byte(readconfig.Config.MITM.Cert), []byte(readconfig.Config.MITM.Key))
+	} else {
+		prx, _ = httpproxy.NewProxy()
+	}
 
 	//        prx.signer.Ca = &prx.Ca
 	//        if caCert == nil {

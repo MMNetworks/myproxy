@@ -129,6 +129,14 @@ logging:
 connection:
   timeout: 5
   keepalive: 5
+ftp:
+  username: "ftp"
+  password: "anonymous@ftp.com"
+ca:
+  key: ""
+  cert: ""
+  keyfile: "key.pem"
+  certfile: "cert.pem"
 pac:
   type: "FILE"
   url: "http://pac.com/pac_file"

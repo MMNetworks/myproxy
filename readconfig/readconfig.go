@@ -42,6 +42,13 @@ type FTP struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
 }
+type MITM struct {
+	Enable bool `yaml:"enable"`
+	Key string `yaml:"key"`
+	Cert string `yaml:"cert"`
+	Keyfile string `yaml:"keyfile"`
+	Certfile string `yaml:"certfile"`
+}
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
 	NtlmDomain     string   `yaml:"NTLMDomain"`
@@ -62,8 +69,9 @@ type Schema struct {
 	Proxy      Proxy      `yaml:"proxy"`
 	Listen     Listen     `yaml:"listen"`
 	Logging    Logging    `yaml:"logging"`
-	Connection Connection `yaml:"connection`
-	FTP        FTP        `yaml:"ftp`
+	Connection Connection `yaml:"connection"`
+	FTP        FTP        `yaml:"ftp"`
+	MITM       MITM       `yaml:"mitm"`
 }
 
 func ReadConfig(configFilename string) (*Schema, error) {
@@ -256,6 +264,48 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		}
 		fmt.Printf("\n")
 		configOut.Proxy.BasicPass = string(bytePassword)
+	}
+        if configOut.MITM.Keyfile != "" {
+        	keyFilepath, err := filepath.Abs(configOut.MITM.Keyfile)
+                if err != nil {
+                	return nil, err
+        	}
+       		configOut.MITM.Keyfile = keyFilepath
+	}
+        if configOut.MITM.Certfile != "" {
+        	certFilepath, err := filepath.Abs(configOut.MITM.Certfile)
+                if err != nil {
+                	return nil, err
+        	}
+       		configOut.MITM.Certfile = certFilepath
+	}
+	if configOut.MITM.Enable {
+		// Check all combinations
+		switch {
+                case
+                        configOut.MITM.Key != "" && configOut.MITM.Cert == "",
+                        configOut.MITM.Key == "" && configOut.MITM.Cert != "",
+                        configOut.MITM.Keyfile != "" && configOut.MITM.Certfile == "",
+                        configOut.MITM.Keyfile == "" && configOut.MITM.Certfile != "",
+                        configOut.MITM.Key != "" && configOut.MITM.Keyfile != "",
+                        configOut.MITM.Cert != "" && configOut.MITM.Certfile != "":
+			return nil, errors.New("Invalid MITM certificate configuration")
+                default:
+                }
+		if configOut.MITM.Keyfile != "" {
+ 			buf, err := os.ReadFile(configOut.MITM.Keyfile)
+                        if err != nil {
+                                fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
+                                return nil, err
+                        }
+			configOut.MITM.Key = string(buf)
+ 			buf, err = os.ReadFile(configOut.MITM.Certfile)
+                        if err != nil {
+                                fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
+                                return nil, err
+                        }
+			configOut.MITM.Cert = string(buf)
+		}
 	}
 	if configOut.Listen.IP == "" {
 		configOut.Listen.IP = "127.0.0.1"
