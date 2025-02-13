@@ -58,7 +58,11 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	return httpproxy.ConnectMitm, host
+	if readconfig.Config.MITM.Enable {
+		return httpproxy.ConnectMitm, host
+	} else {
+		return httpproxy.ConnectProxy, host
+	}
 	//return httpproxy.ConnectProxy, host
 	// Apply "Man in the Middle" to all ssl connections. Never change host.
 	//return httpproxy.ConnectMitm, host
@@ -147,7 +151,7 @@ func runProxy(args []string) {
 	}
 
 	// Create a new proxy with default certificate pair.
-	var prx *httpproxy.Proxy	
+	var prx *httpproxy.Proxy
 	if readconfig.Config.MITM.Enable {
 		prx, _ = httpproxy.NewProxyCert([]byte(readconfig.Config.MITM.Cert), []byte(readconfig.Config.MITM.Key))
 	} else {
