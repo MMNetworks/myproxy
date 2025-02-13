@@ -275,6 +275,9 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 		logging.Printf("DEBUG", "doFtpUpstream: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
@@ -334,6 +337,9 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)
+	ctx.AccessLog.Starttime = time.Now()
+	ctx.AccessLog.BytesIN = 0
+	ctx.AccessLog.BytesOUT = 0
 	return true, err
 }
 
@@ -411,6 +417,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 		return false, err
 	}
@@ -458,6 +467,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				logging.AccesslogWrite(ctx.AccessLog)
+				ctx.AccessLog.Starttime = time.Now()
+				ctx.AccessLog.BytesIN = 0
+				ctx.AccessLog.BytesOUT = 0
 				logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 				return false, err
 			} else {
@@ -493,6 +505,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				logging.AccesslogWrite(ctx.AccessLog)
+				ctx.AccessLog.Starttime = time.Now()
+				ctx.AccessLog.BytesIN = 0
+				ctx.AccessLog.BytesOUT = 0
 			}
 		} else {
 			ctx.doError("Ftp", ErrRemoteConnect, err)
@@ -502,6 +517,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
 			logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
 			return false, err
 		}
@@ -517,6 +535,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete."))
 		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 	}
 	respHeader.Set("Connection", "close")
 	err = ServeInMemory(w, respCode, respHeader, buf.Bytes())
@@ -546,6 +567,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 		return
 	}
 	conn, _, err := hij.Hijack()
@@ -558,6 +582,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 		return
 	}
 	hijConn := conn
@@ -592,6 +619,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
 			return
 		}
 		remoteConn := conn.(*net.TCPConn)
@@ -604,6 +634,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.Endtime = time.Now()
 				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 				logging.AccesslogWrite(ctx.AccessLog)
+				ctx.AccessLog.Starttime = time.Now()
+				ctx.AccessLog.BytesIN = 0
+				ctx.AccessLog.BytesOUT = 0
 			}
 			return
 		}
@@ -731,6 +764,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
 			return
 		}
 		tlsConfig.Certificates = append(tlsConfig.Certificates, *cert)
@@ -743,6 +779,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
 			return
 		}
 		ctx.hijTLSConn = tls.Server(hijConn, tlsConfig)
@@ -755,6 +794,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
 			return
 		}
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
@@ -767,6 +809,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)
+	ctx.AccessLog.Starttime = time.Now()
+	ctx.AccessLog.BytesIN = 0
+	ctx.AccessLog.BytesOUT = 0
 	return
 }
 
@@ -880,6 +925,9 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 		return err
 	}
 	if ctx.Prx.OnResponse != nil {
@@ -917,5 +965,8 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)
+	ctx.AccessLog.Starttime = time.Now()
+	ctx.AccessLog.BytesIN = 0
+	ctx.AccessLog.BytesOUT = 0
 	return err
 }
