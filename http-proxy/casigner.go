@@ -1,7 +1,8 @@
 package httpproxy
 
 import (
-	"crypto/rsa"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
@@ -120,7 +121,7 @@ func SignHosts(ca tls.Certificate, hosts []string) (*tls.Certificate, error) {
 		}
 	}
 	rnd := mrand.New(mrand.NewSource(serial.Int64()))
-	certPriv, err := rsa.GenerateKey(rnd, 1024)
+	certPriv, err := ecdsa.GenerateKey(elliptic.P256(), rnd)
 	if err != nil {
 		return nil, err
 	}

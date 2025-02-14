@@ -252,7 +252,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	if r.Body != nil {
 		defer r.Body.Close()
 	}
-	
+
 	if proxy == "" {
 		logging.Printf("DEBUG", "doFtpUpstream: proxy not set\n")
 		return true, nil
@@ -357,7 +357,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	if r.Body != nil {
 		defer r.Body.Close()
 	}
-	
+
 	if r.URL.Scheme != "ftp" && r.URL.Scheme != "ftps" {
 		return false, nil
 	}
@@ -833,10 +833,10 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	req.URL.Host = ctx.ConnectHost
 	w = NewConnResponseWriter(ctx.hijTLSConn)
 	r = req
-        ctx.AccessLog.Method = r.Method
-        ctx.AccessLog.Scheme = r.URL.Scheme
-        ctx.AccessLog.Url = r.URL.String()
-        ctx.AccessLog.Version = r.Proto
+	ctx.AccessLog.Method = r.Method
+	ctx.AccessLog.Scheme = r.URL.Scheme
+	ctx.AccessLog.Url = r.URL.String()
+	ctx.AccessLog.Version = r.Proto
 	return
 }
 
