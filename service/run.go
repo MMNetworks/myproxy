@@ -10,8 +10,11 @@ import (
 	"myproxy/readconfig"
 	"myproxy/upstream"
 	"myproxy/upstream/authenticate"
+	"net"
 	"net/http"
 	"os"
+	"regexp"
+	"strings"
 	// "github.com/yassinebenaid/godump"
 )
 
@@ -55,12 +58,107 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 	return false
 }
 
+func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	var connectionIP string = ctx.AccessLog.SourceIP
+	var forwardedIP string = ctx.AccessLog.ForwardedIP
+	var uri string = ctx.ConnectReq.URL.String()
+	var matchConn bool = false
+	var matchForw bool = false
+	var checkClient bool = true
+	var checkProxy bool = true
+
+	// Parse Include/Exclude line
+	spos := strings.Index(incExc, ";")
+	cidrStr := incExc[:spos]
+	spos2 := strings.Index(incExc[spos+1:], ";")
+	clientOrProxyStr := incExc[spos+1 : spos+spos2+1]
+	incExcRex := incExc[spos+spos2+2:]
+
+	// Match URL against regex
+	matchURI, err := regexp.MatchString(incExcRex, uri)
+	if err != nil {
+		logging.Printf("DEBUG", "doTLSBreak: Invalid regex: %s err: %v\n", incExcRex, err)
+		return 0
+	}
+	if !matchURI {
+		logging.Printf("DEBUG", "doTLSBreak: regex does not match. regex: %s URI: %s\n", incExcRex, uri)
+		return 0
+	}
+
+	isNeg := strings.Index(cidrStr, "!") == 0
+	if isNeg {
+		cidrStr = cidrStr[1:]
+	}
+	checkProxy = !(strings.ToUpper(clientOrProxyStr) == "CLIENT")
+	checkClient = !(strings.ToUpper(clientOrProxyStr) == "PROXY")
+
+	_, cidr, err := net.ParseCIDR(cidrStr)
+	if err != nil {
+		logging.Printf("DEBUG", "doTLSBreak: cn not parse cidr: %s\n", cidrStr)
+		return 0
+	}
+	if forwardedIP != "" {
+		cpos := strings.Index(forwardedIP, ":")
+		if cpos != -1 {
+			forwardedIP = forwardedIP[:cpos]
+		}
+		forwIP := net.ParseIP(forwardedIP)
+		matchForw = cidr.Contains(forwIP)
+	}
+
+	if connectionIP != "" {
+		cpos := strings.Index(connectionIP, ":")
+		if cpos != -1 {
+			connectionIP = connectionIP[:cpos]
+		}
+		connIP := net.ParseIP(connectionIP)
+		matchConn = cidr.Contains(connIP)
+	}
+	logging.Printf("DEBUG", "doTLSBreak: checkClient: %t\n", checkClient)
+	logging.Printf("DEBUG", "doTLSBreak: checkProxy: %t\n", checkProxy)
+	logging.Printf("DEBUG", "doTLSBreak: matchConn: %t\n", matchConn)
+	logging.Printf("DEBUG", "doTLSBreak: matchForw: %t\n", matchForw)
+	if checkClient && matchConn || checkClient && matchForw {
+		if isNeg {
+			return -1
+		}
+		return 1
+	}
+	if checkProxy && matchConn {
+		if isNeg {
+			return -1
+		}
+		return 1
+	}
+
+	return 0
+}
+
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	var breakTLS bool = false
 	if readconfig.Config.MITM.Enable {
-		return httpproxy.ConnectMitm, host
+		for _, v := range readconfig.Config.MITM.IncExc {
+			// IncExc string format (!|)src,(client|proxy);regex
+			logging.Printf("DEBUG", "OnConnect: IncExc: %s\n", v)
+			if doTLSBreak(ctx, v) < 0 {
+				breakTLS = false
+				break
+			} else if doTLSBreak(ctx, v) > 0 {
+				breakTLS = true
+				break
+			}
+		}
+		logging.Printf("DEBUG", "OnConnect: URL: %s MITM:%t\n", ctx.ConnectReq.URL.String(), breakTLS)
+		if breakTLS {
+			return httpproxy.ConnectMitm, host
+		} else {
+			return httpproxy.ConnectProxy, host
+		}
 	} else {
+		logging.Printf("DEBUG", "OnConnect: URL: %s MITM:%t\n", ctx.ConnectReq.URL.String(), false)
 		return httpproxy.ConnectProxy, host
 	}
 	//return httpproxy.ConnectProxy, host
@@ -153,9 +251,13 @@ func runProxy(args []string) {
 	// Create a new proxy with default certificate pair.
 	var prx *httpproxy.Proxy
 	if readconfig.Config.MITM.Enable {
-		prx, _ = httpproxy.NewProxyCert([]byte(readconfig.Config.MITM.Cert), []byte(readconfig.Config.MITM.Key))
+		prx, err = httpproxy.NewProxyCert([]byte(readconfig.Config.MITM.Cert), []byte(readconfig.Config.MITM.Key))
 	} else {
-		prx, _ = httpproxy.NewProxy()
+		prx, err = httpproxy.NewProxy()
+	}
+	if err != nil {
+		logging.Printf("ERROR", "runProxy: error instantiating proxy %v\n", err)
+		return
 	}
 
 	//        prx.signer.Ca = &prx.Ca

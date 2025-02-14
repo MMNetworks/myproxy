@@ -6,8 +6,10 @@ import (
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -43,11 +45,12 @@ type FTP struct {
 	Password string `yaml:"password"`
 }
 type MITM struct {
-	Enable bool `yaml:"enable"`
-	Key string `yaml:"key"`
-	Cert string `yaml:"cert"`
-	Keyfile string `yaml:"keyfile"`
-	Certfile string `yaml:"certfile"`
+	Enable   bool     `yaml:"enable"`
+	Key      string   `yaml:"key"`
+	Cert     string   `yaml:"cert"`
+	Keyfile  string   `yaml:"keyfile"`
+	Certfile string   `yaml:"certfile"`
+	IncExc   []string `yaml:"incexc"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
@@ -265,46 +268,66 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		fmt.Printf("\n")
 		configOut.Proxy.BasicPass = string(bytePassword)
 	}
-        if configOut.MITM.Keyfile != "" {
-        	keyFilepath, err := filepath.Abs(configOut.MITM.Keyfile)
-                if err != nil {
-                	return nil, err
-        	}
-       		configOut.MITM.Keyfile = keyFilepath
+	if configOut.MITM.Keyfile != "" {
+		keyFilepath, err := filepath.Abs(configOut.MITM.Keyfile)
+		if err != nil {
+			return nil, err
+		}
+		configOut.MITM.Keyfile = keyFilepath
 	}
-        if configOut.MITM.Certfile != "" {
-        	certFilepath, err := filepath.Abs(configOut.MITM.Certfile)
-                if err != nil {
-                	return nil, err
-        	}
-       		configOut.MITM.Certfile = certFilepath
+	if configOut.MITM.Certfile != "" {
+		certFilepath, err := filepath.Abs(configOut.MITM.Certfile)
+		if err != nil {
+			return nil, err
+		}
+		configOut.MITM.Certfile = certFilepath
 	}
 	if configOut.MITM.Enable {
 		// Check all combinations
 		switch {
-                case
-                        configOut.MITM.Key != "" && configOut.MITM.Cert == "",
-                        configOut.MITM.Key == "" && configOut.MITM.Cert != "",
-                        configOut.MITM.Keyfile != "" && configOut.MITM.Certfile == "",
-                        configOut.MITM.Keyfile == "" && configOut.MITM.Certfile != "",
-                        configOut.MITM.Key != "" && configOut.MITM.Keyfile != "",
-                        configOut.MITM.Cert != "" && configOut.MITM.Certfile != "":
+		case
+			configOut.MITM.Key != "" && configOut.MITM.Cert == "",
+			configOut.MITM.Key == "" && configOut.MITM.Cert != "",
+			configOut.MITM.Keyfile != "" && configOut.MITM.Certfile == "",
+			configOut.MITM.Keyfile == "" && configOut.MITM.Certfile != "",
+			configOut.MITM.Key != "" && configOut.MITM.Keyfile != "",
+			configOut.MITM.Cert != "" && configOut.MITM.Certfile != "":
 			return nil, errors.New("Invalid MITM certificate configuration")
-                default:
-                }
+		default:
+		}
 		if configOut.MITM.Keyfile != "" {
- 			buf, err := os.ReadFile(configOut.MITM.Keyfile)
-                        if err != nil {
-                                fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
-                                return nil, err
-                        }
+			buf, err := os.ReadFile(configOut.MITM.Keyfile)
+			if err != nil {
+				fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
+				return nil, err
+			}
 			configOut.MITM.Key = string(buf)
- 			buf, err = os.ReadFile(configOut.MITM.Certfile)
-                        if err != nil {
-                                fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
-                                return nil, err
-                        }
+			buf, err = os.ReadFile(configOut.MITM.Certfile)
+			if err != nil {
+				fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
+				return nil, err
+			}
 			configOut.MITM.Cert = string(buf)
+		}
+	}
+	for i, v := range configOut.MITM.IncExc {
+		// IncExc string format (!|)src,(client|proxy);regex
+		isTriple, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
+		if !isTriple {
+			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s\n", i+1, v)
+			return nil, errors.New("Invalid Include/Exclude line")
+		}
+		spos := strings.Index(v, ";")
+		cidr := v[:spos]
+		epos := strings.Index(v, "!")
+		// log.Printf("DEBUG: ReadConfig: Include/Exclude %s, Exclamation: %d, Semicolon: %d\n",v,epos,spos)
+		if epos == 0 {
+			cidr = cidr[1:]
+		}
+		_, _, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
+			return nil, errors.New("Invalid Include/Exclude line")
 		}
 	}
 	if configOut.Listen.IP == "" {
