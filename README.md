@@ -130,7 +130,7 @@ When using myproxy as Windows service make sure the file paths are absolute path
 </ul>
 <li>ftp:</li>
 <ul>
-<li>setting default username / password for ftp. default anonymous / anonymous@myproxy
+<li>setting default username / password for ftp. Default is anonymous / anonymous@myproxy
 </ul>
 </ul>
 
