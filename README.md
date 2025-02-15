@@ -116,7 +116,7 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>mitm:</li>
 <ul>
 <li>settings for TLS break of proxy connection.(default disabled) </li>
-<li>needs either a string with key and cert or file names point to a key and cert</li>
+<li>needs either a string with key and certificate or file names pointing to a key and certficate</li>
 <li>The include/exclude list can be used to bypass TLS break </li>
 <li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;
 <ul>
