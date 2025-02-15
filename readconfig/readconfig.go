@@ -45,12 +45,13 @@ type FTP struct {
 	Password string `yaml:"password"`
 }
 type MITM struct {
-	Enable   bool     `yaml:"enable"`
-	Key      string   `yaml:"key"`
-	Cert     string   `yaml:"cert"`
-	Keyfile  string   `yaml:"keyfile"`
-	Certfile string   `yaml:"certfile"`
-	IncExc   []string `yaml:"incexc"`
+	Enable     bool     `yaml:"enable"`
+	Key        string   `yaml:"key"`
+	Cert       string   `yaml:"cert"`
+	Keyfile    string   `yaml:"keyfile"`
+	Certfile   string   `yaml:"certfile"`
+	IncExc     []string `yaml:"incexc"`
+	IncExcFile string   `yaml:"incexcfile"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
@@ -309,20 +310,38 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			}
 			configOut.MITM.Cert = string(buf)
 		}
+		if configOut.MITM.IncExcFile != "" {
+			buf, err := os.ReadFile(configOut.MITM.IncExcFile)
+			if err != nil {
+				fmt.Printf("ERROR", "ReadConfig: could not read Include/Exclude file: %v\n", err)
+				return nil, err
+			}
+			bufStr := strings.Split(string(buf), "\n")
+			configOut.MITM.IncExc = append(configOut.MITM.IncExc, bufStr...)
+		}
+
 	}
 	for i, v := range configOut.MITM.IncExc {
 		// IncExc string format (!|)src,(client|proxy);regex
+		isEmpty, _ := regexp.MatchString("^[ ]*$", v)
 		isTriple, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
+		if isEmpty {
+			continue
+		}
 		if !isTriple {
 			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s\n", i+1, v)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
 		spos := strings.Index(v, ";")
 		cidr := v[:spos]
-		epos := strings.Index(v, "!")
+		epos := strings.Index(cidr, "!")
+		cpos := strings.Index(cidr, "/")
 		// log.Printf("DEBUG: ReadConfig: Include/Exclude %s, Exclamation: %d, Semicolon: %d\n",v,epos,spos)
 		if epos == 0 {
 			cidr = cidr[1:]
+		}
+		if cpos == -1 {
+			cidr = cidr + "/32"
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {
