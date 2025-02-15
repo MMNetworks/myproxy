@@ -299,13 +299,13 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if configOut.MITM.Keyfile != "" {
 			buf, err := os.ReadFile(configOut.MITM.Keyfile)
 			if err != nil {
-				fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
+				log.Printf("ERROR: ReadConfig: could not read Keyfile file: %v\n", err)
 				return nil, err
 			}
 			configOut.MITM.Key = string(buf)
 			buf, err = os.ReadFile(configOut.MITM.Certfile)
 			if err != nil {
-				fmt.Printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
+				log.Printf("ERROR: ReadConfig: could not read Keyfile file: %v\n", err)
 				return nil, err
 			}
 			configOut.MITM.Cert = string(buf)
@@ -313,7 +313,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if configOut.MITM.IncExcFile != "" {
 			buf, err := os.ReadFile(configOut.MITM.IncExcFile)
 			if err != nil {
-				fmt.Printf("ERROR", "ReadConfig: could not read Include/Exclude file: %v\n", err)
+				log.Printf("ERROR: ReadConfig: could not read Include/Exclude file: %v\n", err)
 				return nil, err
 			}
 			bufStr := strings.Split(string(buf), "\n")
