@@ -118,12 +118,14 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>settings for TLS break of proxy connection.(default disabled) </li>
 <li>needs either a string with key and certificate or file names pointing to a key and certficate</li>
 <li>The include/exclude list can be used to bypass TLS break </li>
+<ul>
 <li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;
 <ul>
 <li>        source IP or subnet to include or exclude of prefixed with !</li>
 <li>        the second value determines if the source IP is the connection IP or forwarded IP(client) if set or only the connection IP, when a forwarded IP is set(proxy) (i.e. connection IP is liekly a downstream proxy). As default both IPs are checked against </li>
 <li>        the third value is a regex to match the URL against.</li>
 <li>The include exclude file will be appended to the incexc list</li> 
+</ul>
 </ul>
 </ul>
 <li>ftp:</li>
