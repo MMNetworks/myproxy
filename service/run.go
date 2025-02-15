@@ -87,8 +87,12 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	}
 
 	isNeg := strings.Index(cidrStr, "!") == 0
+	hasSlash := strings.Index(cidrStr, "/") > -1
 	if isNeg {
 		cidrStr = cidrStr[1:]
+	}
+	if !hasSlash {
+		cidrStr = cidrStr + "/32"
 	}
 	checkProxy = !(strings.ToUpper(clientOrProxyStr) == "CLIENT")
 	checkClient = !(strings.ToUpper(clientOrProxyStr) == "PROXY")
@@ -140,9 +144,17 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var breakTLS bool = false
 	if readconfig.Config.MITM.Enable {
+		if len(readconfig.Config.MITM.IncExc) == 0 {
+			// Empty Include/Exclude list => TLS breal all
+			breakTLS = true
+		}
 		for _, v := range readconfig.Config.MITM.IncExc {
 			// IncExc string format (!|)src,(client|proxy);regex
 			logging.Printf("DEBUG", "OnConnect: IncExc: %s\n", v)
+			isEmpty, _ := regexp.MatchString("^[ ]*$", v)
+			if isEmpty {
+				continue
+			}
 			if doTLSBreak(ctx, v) < 0 {
 				breakTLS = false
 				break
@@ -192,6 +204,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 func runProxy(args []string) {
 	var configFilename string
 	var err error
+	var caCert, caKey []byte
 
 	if len(args) == 0 {
 		logging.Printf("ERROR", "runProxy: missing argument list\n")
@@ -242,16 +255,18 @@ func runProxy(args []string) {
 		logging.Printf("INFO", "runProxy: Keyfile: %s\n", readconfig.Config.MITM.Keyfile)
 		if readconfig.Config.MITM.Cert != "" {
 			logging.Printf("INFO", "runProxy: Cert set\n")
+			caCert = []byte(readconfig.Config.MITM.Cert)
 		}
 		if readconfig.Config.MITM.Key != "" {
 			logging.Printf("INFO", "runProxy: Key set\n")
+			caKey = []byte(readconfig.Config.MITM.Key)
 		}
 	}
 
 	// Create a new proxy with default certificate pair.
 	var prx *httpproxy.Proxy
 	if readconfig.Config.MITM.Enable {
-		prx, err = httpproxy.NewProxyCert([]byte(readconfig.Config.MITM.Cert), []byte(readconfig.Config.MITM.Key))
+		prx, err = httpproxy.NewProxyCert(caCert, caKey)
 	} else {
 		prx, err = httpproxy.NewProxy()
 	}
