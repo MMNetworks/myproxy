@@ -155,10 +155,11 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 			if isEmpty {
 				continue
 			}
-			if doTLSBreak(ctx, v) < 0 {
+			tlsBreak := doTLSBreak(ctx, v)
+			if tlsBreak < 0 {
 				breakTLS = false
 				break
-			} else if doTLSBreak(ctx, v) > 0 {
+			} else if tlsBreak > 0 {
 				breakTLS = true
 				break
 			}
