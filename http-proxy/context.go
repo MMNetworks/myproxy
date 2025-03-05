@@ -254,7 +254,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	}
 
 	if proxy == "" {
-		logging.Printf("DEBUG", "doFtpUpstream: proxy not set\n")
+		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d proxy not set\n", ctx.SessionNo)
 		return true, nil
 	}
 
@@ -263,7 +263,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		host += ":21"
 	}
 
-	logging.Printf("DEBUG", "doFtpUpstream: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+	logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	if err != nil {
 		ctx.doError("Ftp", ErrRemoteConnect, err)
@@ -278,7 +278,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		ctx.AccessLog.Starttime = time.Now()
 		ctx.AccessLog.BytesIN = 0
 		ctx.AccessLog.BytesOUT = 0
-		logging.Printf("DEBUG", "doFtpUpstream: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, err
 	}
 	bodySize := r.ContentLength
@@ -333,7 +333,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		totalSize := responseLineSize + headerSize + headerEmptyLineSize + int(bodySize)
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(totalSize)
 	}
-	logging.Printf("DEBUG", "doFtpUpstream: Connection closed. Session ID: %d\n", ctx.SessionNo)
+	logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d Connection closed.\n", ctx.SessionNo)
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)
@@ -382,8 +382,8 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		}
 	}
 
-	logging.Printf("DEBUG", "doFtp: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
-	logging.Printf("DEBUG", "doFtp: Set Username to %s Session ID: %d\n", user, ctx.SessionNo)
+	logging.Printf("DEBUG", "doFtp: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
+	logging.Printf("DEBUG", "doFtp: SessionID:%d Set Username to %s\n", ctx.SessionNo, user)
 	// Try to count bytes send & received based on log data
 	// It will miss
 	// 	first 220 Header from server
@@ -420,29 +420,29 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		ctx.AccessLog.Starttime = time.Now()
 		ctx.AccessLog.BytesIN = 0
 		ctx.AccessLog.BytesOUT = 0
-		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, err
 	}
 
 	// Use data conection creation to find remote IP
 	rawConn, err := ftpClient.OpenRawConn()
 	if err != nil {
-		logging.Printf("DEBUG", "doFtp: Error opening raw connection: %v\n", err)
-		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Error opening raw connection: %v\n", ctx.SessionNo, err)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, err
 	}
 
 	// Prepare the data connection
 	dcGetter, err := rawConn.PrepareDataConn()
 	if err != nil {
-		logging.Printf("DEBUG", "doFtp: Error preparing data connection: %v\n", err)
-		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Error preparing data connection: %v\n", ctx.SessionNo, err)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, err
 	}
 	dataConn, err := dcGetter()
 	if err != nil {
-		logging.Printf("DEBUG", "doFtp: Error getting data connection: %v\n", err)
-		logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Error getting data connection: %v\n", ctx.SessionNo, err)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, err
 	}
 	dataConn.Close()
@@ -450,7 +450,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	// Replace high port of data connection with control connection port
 	ctx.AccessLog.DestinationIP = remoteAddr.IP.String() + ":" + port
 
-	logging.Printf("DEBUG", "doFtp: Retrieving File/Dir Listing: \n")
+	logging.Printf("DEBUG", "doFtp: SessionID:%d Retrieving File/Dir Listing: \n", ctx.SessionNo)
 	buf := new(bytes.Buffer)
 	err = ftpClient.Retrieve(r.URL.Path, buf)
 	if err != nil {
@@ -470,7 +470,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				ctx.AccessLog.Starttime = time.Now()
 				ctx.AccessLog.BytesIN = 0
 				ctx.AccessLog.BytesOUT = 0
-				logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 				return false, err
 			} else {
 				hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
@@ -478,21 +478,21 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				if hasSlash {
 					path = path[1:]
 				}
-				logging.Printf("DEBUG", "doFtp: Directory Listing: \n")
-				logging.Printf("DEBUG", "doFtp: FTP Directory Listing: ftp://%s/%s\n", host, path)
-				logging.Printf("DEBUG", "doFtp: Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
+				logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doFtp: SessionID:%d FTP Directory Listing: ftp://%s/%s\n", ctx.SessionNo, host, path)
+				logging.Printf("DEBUG", "doFtp: SessionID:%d Parent Directory: ftp://%s/%s\n", ctx.SessionNo, host, filepath.Dir(path))
 				// Write the response body
 				fmt.Fprintf(buf, "Directory Listing: \n")
 				fmt.Fprintf(buf, "FTP Directory Listing: ftp://%s/%s\n", host, path)
 				fmt.Fprintf(buf, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
 				for _, file := range files {
 					if file.IsDir() {
-						logging.Printf("DEBUG", "doFtp: %s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+						logging.Printf("DEBUG", "doFtp: SessionID:%d %s dir %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), file.Name())
 						n, _ := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
 						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 					} else {
 						readableSize := formatSize(file.Size())
-						logging.Printf("DEBUG", "doFtp: %s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+						logging.Printf("DEBUG", "doFtp: SessionID:%d %s %s %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), readableSize, file.Name())
 						n, _ := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
 						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 					}
@@ -520,11 +520,11 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			ctx.AccessLog.Starttime = time.Now()
 			ctx.AccessLog.BytesIN = 0
 			ctx.AccessLog.BytesOUT = 0
-			logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return false, err
 		}
 	} else {
-		// logging.Printf("DEBUG", "doFtp: Session ID: %d Content: %s\n", ctx.SessionNo, buf)
+		// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
 		respHeader.Set("Content-Type", "application/octet-stream")
 		respCode = 200
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(buf.Len())
@@ -544,7 +544,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("doFtp", ErrResponseWrite, err)
 	}
-	logging.Printf("DEBUG", "doFtp: Connection closed. Session ID: %d\n", ctx.SessionNo)
+	logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 	return true, err
 }
 
@@ -644,7 +644,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			// Proxy Dial sets status if a proxy is used
 			ctx.AccessLog.Status = "200 OK"
 		}
-		logging.Printf("DEBUG", "doConnect: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+		logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 		var FirstPacket bool = true
 		var FirstPacketResponse bool = true
 		var wg sync.WaitGroup
@@ -678,13 +678,13 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					if err != nil {
 						panic(err)
 					}
-					protocol, description := protocol.AnalyseFirstPacket(buf[:n])
+					protocol, description := protocol.AnalyseFirstPacket(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
 						if protocol != "TLS" {
-							logging.Printf("INFO", "doConnect: Found tunnelled protocol in request: %s %s\n", protocol, description)
+							logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in request: %s %s\n", ctx.SessionNo, protocol, description)
 							ctx.AccessLog.Protocol = protocol
 						} else {
-							logging.Printf("INFO", "doConnect: Found in request: %s %s\n", protocol, description)
+							logging.Printf("INFO", "doConnect: SessionID:%d Found in request: %s %s\n", ctx.SessionNo, protocol, description)
 							spos := strings.Index(description, ":")
 							ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
 						}
@@ -732,9 +732,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					if err != nil {
 						panic(err)
 					}
-					protocol, description := protocol.AnalyseFirstPacketResponse(buf[:n])
+					protocol, description := protocol.AnalyseFirstPacketResponse(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
-						logging.Printf("INFO", "doConnect: Found tunnelled protocol in response: %s %s\n", protocol, description)
+						logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in response: %s %s\n", ctx.SessionNo, protocol, description)
 						ctx.AccessLog.Protocol = protocol
 					}
 				}
@@ -800,12 +800,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			return
 		}
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
-		logging.Printf("DEBUG", "doConnect: New Connection to %s Session ID: %d\n", host, ctx.SessionNo)
+		logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 		b = false
 	default:
 		hijConn.Close()
 	}
-	logging.Printf("DEBUG", "doConnect: Connection closed. Session ID: %d\n", ctx.SessionNo)
+	logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)
@@ -859,7 +859,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	}
 
 	r.RequestURI = r.URL.String()
-	logging.Printf("DEBUG", "doRequest: New Connection to %s Session ID: %d\n", r.URL.Host, ctx.SessionNo)
+	logging.Printf("DEBUG", "doRequest: SessionID:%d New Connection to %s\n", ctx.SessionNo, r.URL.Host)
 	if ctx.Prx.OnRequest == nil {
 		return false, nil
 	}
@@ -879,7 +879,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Request", ErrResponseWrite, err)
 	}
-	logging.Printf("DEBUG", "doRequest: Connection closed. Session ID: %d\n", ctx.SessionNo)
+	logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
 	return true, err
 }
 
@@ -921,7 +921,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		if err != nil && !isConnectionClosed(err) {
 			ctx.doError("Response", ErrResponseWrite, err)
 		}
-		logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doResponse: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 		logging.AccesslogWrite(ctx.AccessLog)
@@ -961,7 +961,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		totalSize := responseLineSize + headerSize + headerEmptyLineSize + int(bodySize)
 		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(totalSize)
 	}
-	logging.Printf("DEBUG", "doResponse: Connection closed. Session ID: %d\n", ctx.SessionNo)
+	logging.Printf("DEBUG", "doResponse: SessionID:%d Connection closed.\n", ctx.SessionNo)
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 	logging.AccesslogWrite(ctx.AccessLog)

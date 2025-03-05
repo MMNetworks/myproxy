@@ -21,7 +21,7 @@ import (
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	logging.Printf("ERROR", "OnError: %s: %s [%s]\n", where, err, opErr)
+	logging.Printf("ERROR", "OnError: SessionID:%d %s: %s [%s]\n", ctx.SessionNo, where, err, opErr)
 	// panic(err)
 }
 
@@ -35,7 +35,7 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	}
 	err := upstream.SetProxy(ctx)
 	if err != nil {
-		logging.Printf("ERROR:", "OnAccept: failed to set proxy: %v\n", err)
+		logging.Printf("ERROR:", "OnAccept: SessionID:%d failed to set proxy: %v\n", ctx.SessionNo, err)
 	}
 	return false
 }
@@ -48,7 +48,7 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 		hash.Write([]byte(pass))
 		hashSum := string(hash.Sum(nil))
 		hexSum := fmt.Sprintf("%x", hashSum)
-		logging.Printf("DEBUG", "OnAuth: User: %s Password hash: %s\n", user, hexSum)
+		logging.Printf("DEBUG", "OnAuth: SessionID:%d User: %s Password hash: %s\n", ctx.SessionNo, user, hexSum)
 		if user == readconfig.Config.Proxy.LocalBasicUser && hexSum == readconfig.Config.Proxy.LocalBasicHash {
 			return true
 		} else {
@@ -78,11 +78,11 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	// Match URL against regex
 	matchURI, err := regexp.MatchString(incExcRex, uri)
 	if err != nil {
-		logging.Printf("DEBUG", "doTLSBreak: Invalid regex: %s err: %v\n", incExcRex, err)
+		logging.Printf("DEBUG", "doTLSBreak: sessionID:%d Invalid regex: %s err: %v\n", ctx.SessionNo, incExcRex, err)
 		return 0
 	}
 	if !matchURI {
-		logging.Printf("DEBUG", "doTLSBreak: regex does not match. regex: %s URI: %s\n", incExcRex, uri)
+		logging.Printf("DEBUG", "doTLSBreak: sessionID:%d regex does not match. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uri)
 		return 0
 	}
 
@@ -99,7 +99,7 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 
 	_, cidr, err := net.ParseCIDR(cidrStr)
 	if err != nil {
-		logging.Printf("DEBUG", "doTLSBreak: cn not parse cidr: %s\n", cidrStr)
+		logging.Printf("DEBUG", "doTLSBreak: SessionID:%d cn not parse cidr: %s\n", ctx.SessionNo, cidrStr)
 		return 0
 	}
 	if forwardedIP != "" {
@@ -119,10 +119,10 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 		connIP := net.ParseIP(connectionIP)
 		matchConn = cidr.Contains(connIP)
 	}
-	logging.Printf("DEBUG", "doTLSBreak: checkClient: %t\n", checkClient)
-	logging.Printf("DEBUG", "doTLSBreak: checkProxy: %t\n", checkProxy)
-	logging.Printf("DEBUG", "doTLSBreak: matchConn: %t\n", matchConn)
-	logging.Printf("DEBUG", "doTLSBreak: matchForw: %t\n", matchForw)
+	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d checkClient: %t\n", ctx.SessionNo, checkClient)
+	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d checkProxy: %t\n", ctx.SessionNo, checkProxy)
+	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d matchConn: %t\n", ctx.SessionNo, matchConn)
+	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d matchForw: %t\n", ctx.SessionNo, matchForw)
 	if checkClient && matchConn || checkClient && matchForw {
 		if isNeg {
 			return -1
@@ -150,7 +150,7 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 		}
 		for _, v := range readconfig.Config.MITM.IncExc {
 			// IncExc string format (!|)src,(client|proxy);regex
-			logging.Printf("DEBUG", "OnConnect: IncExc: %s\n", v)
+			logging.Printf("DEBUG", "OnConnect: SessionID:%d IncExc: %s\n", ctx.SessionNo, v)
 			isEmpty, _ := regexp.MatchString("^[ ]*$", v)
 			if isEmpty {
 				continue
@@ -164,14 +164,14 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 				break
 			}
 		}
-		logging.Printf("DEBUG", "OnConnect: URL: %s MITM:%t\n", ctx.ConnectReq.URL.String(), breakTLS)
+		logging.Printf("DEBUG", "OnConnect: SessionID:%d URL: %s MITM:%t\n", ctx.SessionNo, ctx.ConnectReq.URL.String(), breakTLS)
 		if breakTLS {
 			return httpproxy.ConnectMitm, host
 		} else {
 			return httpproxy.ConnectProxy, host
 		}
 	} else {
-		logging.Printf("DEBUG", "OnConnect: URL: %s MITM:%t\n", ctx.ConnectReq.URL.String(), false)
+		logging.Printf("DEBUG", "OnConnect: SessionID:%d URL: %s MITM:%t\n", ctx.SessionNo, ctx.ConnectReq.URL.String(), false)
 		return httpproxy.ConnectProxy, host
 	}
 	//return httpproxy.ConnectProxy, host
@@ -192,7 +192,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	if resp.StatusCode == http.StatusProxyAuthRequired {
 		_, err := io.ReadAll(resp.Body)
 		if err != nil {
-			logging.Printf("ERROR", "OnResponse: Could not read response body from response: %v\n", err)
+			logging.Printf("ERROR", "OnResponse: SessionID:%d Could not read response body from response: %v\n", ctx.SessionNo, err)
 			return
 		}
 		defer resp.Body.Close()
