@@ -59,6 +59,12 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		fmt.Fprintf(conn, "%s %s HTTP/1.1\r\n", req.Method, req.URL.String())
 		fmt.Fprintf(conn, "Host: %s\r\n", host)
 		fmt.Fprintf(conn, "Proxy-Connection: Keep-Alive\r\n")
+		for k, v := range req.Header {
+			if k != "Host" && k != "Proxy-Connection" {
+				fmt.Fprintf(conn, "%s: %s\r\n", k, v)
+				logging.Printf("DEBUG", "FtpRoundTripper: SessionID:%d add header %s=%s\n", ctx.SessionNo, k, v)
+			}
+		}
 		fmt.Fprintf(conn, "\r\n")
 
 		resp, err = http.ReadResponse(bufio.NewReader(conn), req)
