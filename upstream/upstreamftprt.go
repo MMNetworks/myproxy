@@ -37,19 +37,19 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	proxy := ctx.UpstreamProxy
 
 	if proxy == "" {
-		logging.Printf("DEBUG", "FtpRoundTrip: proxy not set\n")
+		logging.Printf("DEBUG", "FtpRoundTrip: SessionID:%d proxy not set\n", ctx.SessionNo)
 	} else {
 		newDial := net.Dialer{
 			Timeout:   timeOut * time.Second, // Set the timeout duration
 			KeepAlive: keepAlive * time.Second,
 		}
 		conn, err = newDial.Dial("tcp", proxy)
-		logging.Printf("DEBUG", "FtpRoundTrip: After Dial: %v\n", c2s(conn))
+		logging.Printf("DEBUG", "FtpRoundTrip: SessionID:%d After Dial: %v\n", ctx.SessionNo, c2s(conn))
 		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = ""
 		// godump.Dump(ctx.Prx.Rt)
 		if err != nil {
-			logging.Printf("ERROR", "FtpRoundTripper: Error connecting to proxy: %s %v\n", proxy, err)
+			logging.Printf("ERROR", "FtpRoundTripper: SessionID:%d Error connecting to proxy: %s %v\n", ctx.SessionNo, proxy, err)
 			return nil, err
 		}
 		host := req.URL.Host
@@ -63,13 +63,13 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 		resp, err = http.ReadResponse(bufio.NewReader(conn), req)
 		if err != nil {
-			logging.Printf("ERROR", "FtpRoundTripper: Error reading response from proxy: %v\n", err)
+			logging.Printf("ERROR", "FtpRoundTripper: SessionID:%d Error reading response from proxy: %v\n", ctx.SessionNo, err)
 			return nil, err
 		}
 		if resp.StatusCode == http.StatusProxyAuthRequired {
 			_, err = io.ReadAll(resp.Body)
 			if err != nil {
-				logging.Printf("ERROR", "FtpRoundTripper: Could not read response body from response: %v\n", err)
+				logging.Printf("ERROR", "FtpRoundTripper: SessionID:%d Could not read response body from response: %v\n", ctx.SessionNo, err)
 				return nil, err
 			}
 			defer resp.Body.Close()
@@ -79,7 +79,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "FtpRoundTripper: Failed to connect to proxy response status: %s\n", resp.Status)
+			logging.Printf("ERROR", "FtpRoundTripper: SessionID:%d Failed to connect to proxy response status: %s\n", ctx.SessionNo, resp.Status)
 		}
 	}
 

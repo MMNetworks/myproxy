@@ -9,31 +9,31 @@ import (
 	"strings"
 )
 
-func AnalyseFirstPacket(packet []byte) (string, string) {
+func AnalyseFirstPacket(SessionNo int64, packet []byte) (string, string) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 
-	name, err := analyseAsTLSPacket(packet)
+	name, err := analyseAsTLSPacket(SessionNo, packet)
 	if err == nil {
 		return "TLS", "SNI name: " + name
 	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: Not a TLS packet\n")
+		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a TLS packet\n", SessionNo)
 	}
-	name, err = analyseAsSSHPacket(packet)
+	name, err = analyseAsSSHPacket(SessionNo, packet)
 	if err == nil {
 		return "SSH", "Client: " + name
 	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: Not a SSH packet\n")
+		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
-	name, err = analyseAsHTTPPacket(packet)
+	name, err = analyseAsHTTPPacket(SessionNo, packet)
 	if err == nil {
 		return "HTTP", "Client: " + name
 	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: Not a HTTP packet\n")
+		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
 	}
 	return "Unknown", ""
 }
 
-func AnalyseFirstPacketResponse(packet []byte) (string, string) {
+func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	//	name, err := analyseAsTLSPacketResponse(packet)
 	//	if err == nil {
@@ -41,22 +41,22 @@ func AnalyseFirstPacketResponse(packet []byte) (string, string) {
 	//	} else {
 	//		logging.Printf("DEBUG", "analyseFirstPacket: Not a TLS packet\n")
 	//	}
-	name, err := analyseAsSSHPacketResponse(packet)
+	name, err := analyseAsSSHPacketResponse(SessionNo, packet)
 	if err == nil {
 		return "SSH", "Server: " + name
 	} else {
-		logging.Printf("DEBUG", "analyseFirstPacketResponse: Not a SSH packet\n")
+		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
-	name, err = analyseAsFTPPacketResponse(packet)
+	name, err = analyseAsFTPPacketResponse(SessionNo, packet)
 	if err == nil {
 		return "FTP", "Server response: " + name
 	} else {
-		logging.Printf("DEBUG", "analyseFirstPacketResponse: Not a FTP packet\n")
+		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
 	}
 	return "Unknown", ""
 }
 
-func analyseAsSSHPacket(packet []byte) (string, error) {
+func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isSSH, _ := regexp.MatchString("SSH-\\d\\.\\d.*", string(initialMessage))
@@ -68,13 +68,13 @@ func analyseAsSSHPacket(packet []byte) (string, error) {
 		}
 		return msgString[:pos], nil
 	} else {
-		logging.Printf("DEBUG", "analyseAsSSHPacket: Not a SSH packet\n")
+		logging.Printf("DEBUG", "analyseAsSSHPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
 	return "", errors.New("Not a SSH stream")
 }
 
 // Request-Line   = Method SP Request-URI SP HTTP-Version
-func analyseAsHTTPPacket(packet []byte) (string, error) {
+func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isHTTP, _ := regexp.MatchString("[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
@@ -86,12 +86,12 @@ func analyseAsHTTPPacket(packet []byte) (string, error) {
 		}
 		return msgString[:pos], nil
 	} else {
-		logging.Printf("DEBUG", "analyseAsHTTPPacket: packet a HTTP packet\n")
+		logging.Printf("DEBUG", "analyseAsHTTPPacket: SessionID:%d packet a HTTP packet\n", SessionNo)
 	}
 	return "", errors.New("Not a SSH stream")
 }
 
-func analyseAsTLSPacket(packet []byte) (string, error) {
+func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	//
 	// Using https://www.agwa.name/blog/post/parsing_tls_client_hello_with_cryptobyte
@@ -121,120 +121,120 @@ func analyseAsTLSPacket(packet []byte) (string, error) {
 
 	if !handshakeMessage.ReadUint8(&contentType) || contentType != 22 {
 		if contentType != 22 {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Not a TLS handshake message. Message Type: %d\n", contentType)
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS handshake message. Message Type: %d\n", SessionNo, contentType)
 		} else {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Not a TLS handshake message. Can't read uint8\n")
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS handshake message. Can't read uint8\n", SessionNo)
 		}
 		goto END
 	}
 
 	if !handshakeMessage.ReadUint16(&legacyRecordVersion) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read handshake legacy record version\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read handshake legacy record version\n", SessionNo)
 		goto END
 	} else {
 		hex := fmt.Sprintf("%x", legacyRecordVersion)
-		logging.Printf("DEBUG", "analyseAsTLSPacket: TLS legacy record version: %s\n", hex)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS legacy record version: %s\n", SessionNo, hex)
 	}
 
 	if !handshakeMessage.ReadUint16(&messageLength) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read full handshake message\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read full handshake message\n", SessionNo)
 		goto END
 	} else {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: TLS handshake message length: %d\n", messageLength)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS handshake message length: %d\n", SessionNo, messageLength)
 	}
 
 	if !handshakeMessage.ReadUint8(&messageType) || messageType != 1 {
 		if messageType != 1 {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Not a TLS Client Hello message. Message Type: %d\n", messageType)
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS Client Hello message. Message Type: %d\n", SessionNo, messageType)
 		} else {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Not a TLS Client Hello message. Can't read uint8\n")
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS Client Hello message. Can't read uint8\n", SessionNo)
 		}
 		goto END
 	} else {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: TLS Client Hello message: %d\n", messageType)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS Client Hello message: %d\n", SessionNo, messageType)
 	}
 
 	if !handshakeMessage.ReadUint24LengthPrefixed(&clientHello) || !handshakeMessage.Empty() {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read full Client Hello handshake message\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read full Client Hello handshake message\n", SessionNo)
 		goto END
 	}
 
 	if !clientHello.ReadUint16(&legacyVersion) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello protocol version\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello protocol version\n", SessionNo)
 		goto END
 	} else {
 		hex := fmt.Sprintf("%x", legacyVersion)
-		logging.Printf("DEBUG", "analyseAsTLSPacket: TLS protocol version: %s\n", hex)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS protocol version: %s\n", SessionNo, hex)
 	}
 
 	if !clientHello.ReadBytes(&random, 32) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello random value\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello random value\n", SessionNo)
 		goto END
 	}
 
 	if !clientHello.ReadUint8LengthPrefixed((*cryptobyte.String)(&legacySessionID)) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello legacy session ID\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello legacy session ID\n", SessionNo)
 		goto END
 	}
 
 	if !clientHello.ReadUint16LengthPrefixed(&ciphersuitesBytes) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello cypher suite length\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello cypher suite length\n", SessionNo)
 		goto END
 	}
 
 	for !ciphersuitesBytes.Empty() {
 		var ciphersuite uint16
 		if !ciphersuitesBytes.ReadUint16(&ciphersuite) {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello cypher suite\n")
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello cypher suite\n", SessionNo)
 			goto END
 
 		}
 	}
 
 	if !clientHello.ReadUint8LengthPrefixed((*cryptobyte.String)(&legacyCompressionMethods)) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello compression methods\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello compression methods\n", SessionNo)
 		goto END
 	}
 
 	if !clientHello.ReadUint16LengthPrefixed(&extensionsBytes) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello extension bytes\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello extension bytes\n", SessionNo)
 		goto END
 	}
 
 	if !clientHello.Empty() {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: Client Hello record not empty as it should be\n")
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello record not empty as it should be\n", SessionNo)
 		goto END
 	}
 
 	for !extensionsBytes.Empty() {
 		if !extensionsBytes.ReadUint16(&extType) {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello extension type\n")
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello extension type\n", SessionNo)
 			goto END
 		} else {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Client Hello extension type %d\n", extType)
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello extension type %d\n", SessionNo, extType)
 		}
 		if !extensionsBytes.ReadUint16LengthPrefixed(&extData) {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello extension data\n")
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello extension data\n", SessionNo)
 			goto END
 		}
 		// SNI extension
 		if extType == 0 {
 			if !extData.ReadUint16LengthPrefixed(&sniBytes) {
-				logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello SNI data\n")
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI data\n", SessionNo)
 				goto END
 			}
 			for !sniBytes.Empty() {
 				if !sniBytes.ReadUint8(&sniNameType) {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello SNI name type\n")
+					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI name type\n", SessionNo)
 					goto END
 				} else {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: Read Client Hello SNI name type: %d\n", sniNameType)
+					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name type: %d\n", SessionNo, sniNameType)
 				}
 				if !sniBytes.ReadUint16LengthPrefixed(&sniName) {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: Could not read Client Hello SNI name\n")
+					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI name\n", SessionNo)
 					goto END
 				} else {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: Read Client Hello SNI name %s\n", string(sniName))
+					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name %s\n", SessionNo, string(sniName))
 				}
 			}
 		}
@@ -247,7 +247,7 @@ END:
 
 }
 
-func analyseAsFTPPacketResponse(packet []byte) (string, error) {
+func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isFTP, _ := regexp.MatchString("(120|220|421).*\\r\\n", string(initialMessage))
@@ -259,12 +259,12 @@ func analyseAsFTPPacketResponse(packet []byte) (string, error) {
 		}
 		return msgString[:pos], nil
 	} else {
-		logging.Printf("DEBUG", "analyseAsFTPPacketResponse: Not a FTP packet\n")
+		logging.Printf("DEBUG", "analyseAsFTPPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
 	}
 	return "", errors.New("Not a FTP stream")
 }
 
-func analyseAsSSHPacketResponse(packet []byte) (string, error) {
+func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
 	isSSH, _ := regexp.MatchString("SSH-\\d\\.\\d.*", string(initialMessage))
@@ -276,7 +276,7 @@ func analyseAsSSHPacketResponse(packet []byte) (string, error) {
 		}
 		return msgString[:pos], nil
 	} else {
-		logging.Printf("DEBUG", "analyseAsSSHPacketResponse: Not a SSH packet\n")
+		logging.Printf("DEBUG", "analyseAsSSHPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
 	return "", errors.New("Not a SSH stream")
 }

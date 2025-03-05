@@ -1,6 +1,7 @@
 package httpproxy
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"myproxy/logging"
@@ -85,10 +86,39 @@ func NewProxy() (*Proxy, error) {
 // NewProxyCert returns a new Proxy given CA certificate and key.
 func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
+	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
 
 	prx := &Proxy{
 		Rt: &http.Transport{TLSClientConfig: &tls.Config{},
-			Proxy: http.ProxyFromEnvironment,
+			//			Proxy: http.ProxyFromEnvironment,
+			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+				logging.Printf("TRACE", "myproxy/http-proxy.NewProxyCert.Transport.DialContext: called\n")
+				conn, err := (&net.Dialer{
+					Timeout:   timeOut * time.Second,
+					KeepAlive: keepAlive * time.Second,
+				}).DialContext(dctx, network, addr)
+				if err != nil {
+					return nil, err
+				}
+				return conn, nil
+			},
+			Dial: func(network, addr string) (net.Conn, error) {
+				logging.Printf("TRACE", "myproxy/http-proxy.NewProxyCert.Transport.Dial: called\n")
+				conn, err := (&net.Dialer{
+					Timeout:   timeOut * time.Second,
+					KeepAlive: keepAlive * time.Second,
+				}).Dial(network, addr)
+				if err != nil {
+					return nil, err
+				}
+				return conn, nil
+			},
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
 		},
 		MitmChunked: true,
 		signer:      NewCaSignerCache(1024),
@@ -124,7 +154,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 
 	conn, err := newDial.Dial("tcp", address)
 	if err != nil {
-		logging.Printf("ERROR", "NetDial: Error connecting to adress: %s error: %v\n", address, err)
+		logging.Printf("ERROR", "NetDial: SessionID:%d Error connecting to adress: %s error: %v\n", ctx.SessionNo, address, err)
 		ctx.AccessLog.Status = "500 internal error"
 		return nil, err
 	}
