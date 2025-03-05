@@ -73,7 +73,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		for k, v := range req.Header {
 			if k != "Host" && k != "Proxy-Connection" {
 				fmt.Fprintf(conn, "%s: %s\r\n", k, v)
-				logging.Printf("ERROR", "PrxDial: SessionID:%d add header %s=%s\n", ctx.SessionNo, k, v)
+				logging.Printf("DEBUG", "PrxDial: SessionID:%d add header %s=%s\n", ctx.SessionNo, k, v)
 			}
 		}
 		fmt.Fprintf(conn, "\r\n")
