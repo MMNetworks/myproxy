@@ -12,7 +12,7 @@ import (
 )
 
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	var err error
 	proxyAuthValues := resp.Header.Values("Proxy-Authenticate")
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Proxy-Authenticate header: %s\n", ctx.SessionNo, proxyAuthValues)
@@ -61,7 +61,7 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 }
 
 func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	var r = req
 	var err error
 
@@ -90,7 +90,7 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 }
 
 func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *http.Response) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	// Replace original response
 	if newResp == nil {
 		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d empty response\n", ctx.SessionNo)

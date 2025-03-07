@@ -25,7 +25,6 @@ type FtpRoundTripper struct {
 
 // Dial for TLS connection using CONNECT method
 func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
 	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
 	var err error
@@ -33,6 +32,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	var resp *http.Response
 
 	ctx := fR.GetContext()
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 
 	proxy := ctx.UpstreamProxy
 

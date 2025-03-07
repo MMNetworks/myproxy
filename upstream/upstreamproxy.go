@@ -26,7 +26,7 @@ var timeNext time.Time = time.Now()
 var pac *gpac.Parser
 
 func SetProxy(ctx *httpproxy.Context) error {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 
 	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
 	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
