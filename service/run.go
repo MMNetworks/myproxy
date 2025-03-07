@@ -20,14 +20,14 @@ import (
 
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	logging.Printf("ERROR", "OnError: SessionID:%d %s: %s [%s]\n", ctx.SessionNo, where, err, opErr)
 	// panic(err)
 }
 
 func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	r *http.Request) bool {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	// Handle local request has path "/info"
 	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
 		w.Write([]byte("This is myproxy."))
@@ -41,7 +41,7 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 }
 
 func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	// Auth test user.
 	if pass != "" {
 		hash := sha256.New()
@@ -59,7 +59,7 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 }
 
 func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	var connectionIP string = ctx.AccessLog.SourceIP
 	var forwardedIP string = ctx.AccessLog.ForwardedIP
 	var uri string = ctx.ConnectReq.URL.String()
@@ -141,7 +141,7 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	var breakTLS bool = false
 	if readconfig.Config.MITM.Enable {
 		if len(readconfig.Config.MITM.IncExc) == 0 {
@@ -181,14 +181,14 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 
 func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	resp *http.Response) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	// var err error
 	return
 }
 
 func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	resp *http.Response) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	if resp.StatusCode == http.StatusProxyAuthRequired {
 		_, err := io.ReadAll(resp.Body)
 		if err != nil {

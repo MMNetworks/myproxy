@@ -66,7 +66,7 @@ type Context struct {
 }
 
 func (ctx *Context) onAccept(w http.ResponseWriter, r *http.Request) bool {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	defer func() {
 		if err, ok := recover().(error); ok {
 			ctx.doError("Accept", ErrPanic, err)
@@ -76,7 +76,7 @@ func (ctx *Context) onAccept(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (ctx *Context) onAuth(authType string, user string, pass string) bool {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	defer func() {
 		if err, ok := recover().(error); ok {
 			ctx.doError("Auth", ErrPanic, err)
@@ -87,7 +87,7 @@ func (ctx *Context) onAuth(authType string, user string, pass string) bool {
 
 func (ctx *Context) onConnect(host string) (ConnectAction ConnectAction,
 	newHost string) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	defer func() {
 		if err, ok := recover().(error); ok {
 			ctx.doError("Connect", ErrPanic, err)
@@ -97,7 +97,7 @@ func (ctx *Context) onConnect(host string) (ConnectAction ConnectAction,
 }
 
 func (ctx *Context) onRequest(req *http.Request) (resp *http.Response) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	defer func() {
 		if err, ok := recover().(error); ok {
 			ctx.doError("Request", ErrPanic, err)
@@ -107,7 +107,7 @@ func (ctx *Context) onRequest(req *http.Request) (resp *http.Response) {
 }
 
 func (ctx *Context) onResponse(req *http.Request, resp *http.Response) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	defer func() {
 		if err, ok := recover().(error); ok {
 			ctx.doError("Response", ErrPanic, err)
@@ -117,7 +117,7 @@ func (ctx *Context) onResponse(req *http.Request, resp *http.Response) {
 }
 
 func (ctx *Context) doError(where string, err *Error, opErr error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	if ctx.Prx.OnError == nil {
 		return
 	}
@@ -125,7 +125,7 @@ func (ctx *Context) doError(where string, err *Error, opErr error) {
 }
 
 func (ctx *Context) doAccept(w http.ResponseWriter, r *http.Request) bool {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	ctx.Req = r
 	if !r.ProtoAtLeast(1, 0) || r.ProtoAtLeast(2, 0) {
 		if r.Body != nil {
@@ -144,7 +144,8 @@ func (ctx *Context) doAccept(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
+
 	if r.Method != "CONNECT" && !r.URL.IsAbs() {
 		return false
 	}
@@ -245,7 +246,7 @@ func formatSize(bytes int64) string {
 }
 
 func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 
 	proxy := ctx.UpstreamProxy
 
@@ -344,7 +345,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 }
 
 func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 
 	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
 	//	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
@@ -549,7 +550,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 }
 
 func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 
 	b = true
 	if r.Method != "CONNECT" {
@@ -570,6 +571,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.Starttime = time.Now()
 		ctx.AccessLog.BytesIN = 0
 		ctx.AccessLog.BytesOUT = 0
+		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return
 	}
 	conn, _, err := hij.Hijack()
@@ -585,6 +587,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.Starttime = time.Now()
 		ctx.AccessLog.BytesIN = 0
 		ctx.AccessLog.BytesOUT = 0
+		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return
 	}
 	hijConn := conn
@@ -608,6 +611,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		host += ":80"
 	}
 	ctx.ConnectHost = host
+	logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 	switch ctx.ConnectAction {
 	case ConnectProxy:
 		conn, err := ctx.Prx.Dial(ctx, "tcp", host)
@@ -622,6 +626,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Starttime = time.Now()
 			ctx.AccessLog.BytesIN = 0
 			ctx.AccessLog.BytesOUT = 0
+			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		remoteConn := conn.(*net.TCPConn)
@@ -638,13 +643,13 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.BytesIN = 0
 				ctx.AccessLog.BytesOUT = 0
 			}
+			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		if ctx.AccessLog.Status == "" {
 			// Proxy Dial sets status if a proxy is used
 			ctx.AccessLog.Status = "200 OK"
 		}
-		logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 		var FirstPacket bool = true
 		var FirstPacketResponse bool = true
 		var wg sync.WaitGroup
@@ -767,6 +772,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Starttime = time.Now()
 			ctx.AccessLog.BytesIN = 0
 			ctx.AccessLog.BytesOUT = 0
+			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		tlsConfig.Certificates = append(tlsConfig.Certificates, *cert)
@@ -782,6 +788,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Starttime = time.Now()
 			ctx.AccessLog.BytesIN = 0
 			ctx.AccessLog.BytesOUT = 0
+			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		ctx.hijTLSConn = tls.Server(hijConn, tlsConfig)
@@ -797,10 +804,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Starttime = time.Now()
 			ctx.AccessLog.BytesIN = 0
 			ctx.AccessLog.BytesOUT = 0
+			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
-		logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 		b = false
 	default:
 		hijConn.Close()
@@ -816,7 +823,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 }
 
 func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	req, err := http.ReadRequest(ctx.hijTLSReader)
 	if err != nil {
 		if !isConnectionClosed(err) {
@@ -841,7 +848,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 }
 
 func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	var err error
 	if !r.URL.IsAbs() {
 		if r.Body != nil {
@@ -861,10 +868,12 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	r.RequestURI = r.URL.String()
 	logging.Printf("DEBUG", "doRequest: SessionID:%d New Connection to %s\n", ctx.SessionNo, r.URL.Host)
 	if ctx.Prx.OnRequest == nil {
+		logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, nil
 	}
 	resp := ctx.onRequest(r)
 	if resp == nil {
+		logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, nil
 	}
 	if r.Body != nil {
@@ -884,7 +893,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 }
 
 func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
 	if r.Body != nil {
 		defer r.Body.Close()
 	}

@@ -154,7 +154,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 
 	conn, err := newDial.Dial("tcp", address)
 	if err != nil {
-		logging.Printf("ERROR", "NetDial: SessionID:%d Error connecting to adress: %s error: %v\n", ctx.SessionNo, address, err)
+		logging.Printf("ERROR", "NetDial: SessionID:%d Error connecting to address: %s error: %v\n", ctx.SessionNo, address, err)
 		ctx.AccessLog.Status = "500 internal error"
 		return nil, err
 	}
@@ -168,7 +168,23 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 // ServeHTTP implements http.Handler.
 func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	ctx := &Context{Prx: prx, SessionNo: atomic.AddInt64(&prx.SessionNo, 1)}
+	cprx := &Proxy{
+		SessionNo:   prx.SessionNo,
+		Rt:          prx.Rt,
+		Dial:        prx.Dial,
+		Ca:          prx.Ca,
+		UserData:    prx.UserData,
+		OnError:     prx.OnError,
+		OnAccept:    prx.OnAccept,
+		OnAuth:      prx.OnAuth,
+		OnConnect:   prx.OnConnect,
+		OnRequest:   prx.OnRequest,
+		OnResponse:  prx.OnResponse,
+		MitmChunked: prx.MitmChunked,
+		AuthType:    prx.AuthType,
+		signer:      prx.signer,
+	}
+	ctx := &Context{Prx: cprx, SessionNo: atomic.AddInt64(&cprx.SessionNo, 1)}
 
 	defer func() {
 		rec := recover()
@@ -179,7 +195,21 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(rec)
 		}
 	}()
-
+	// Ensure cleanup is performed when the function exits
+	defer func() {
+		logging.Printf("DEBUG", "ServeHTTP: cleanup cprx SessionID:%d\n", cprx.SessionNo)
+		cprx.Rt = nil
+		cprx.Dial = nil
+		cprx.UserData = nil
+		cprx.OnError = nil
+		cprx.OnAccept = nil
+		cprx.OnAuth = nil
+		cprx.OnConnect = nil
+		cprx.OnRequest = nil
+		cprx.OnResponse = nil
+		cprx.signer = nil
+		cprx = nil
+	}()
 	// Initialise access log values
 	ctx.AccessLog.Proxy, _ = os.Hostname()
 	ctx.AccessLog.SessionID = ctx.SessionNo
@@ -205,16 +235,16 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.AccessLog.Starttime = time.Now()
 	ctx.AccessLog.Endtime = time.Now()
 	ctx.AccessLog.Duration = time.Duration(0)
-	conn, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
+	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if !ok {
-		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Addre"))
+		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
 		return
 	}
 
 	// Get the local address from the connection
-	localAddr, ok := conn.(*net.TCPAddr)
+	localAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Addre"))
+		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
 		return
 	}
 	ctx.AccessLog.ProxyIP = localAddr.String()
