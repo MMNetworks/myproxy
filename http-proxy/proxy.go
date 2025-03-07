@@ -184,7 +184,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		AuthType:    prx.AuthType,
 		signer:      prx.signer,
 	}
-	ctx := &Context{Prx: cprx, SessionNo: atomic.AddInt64(&cprx.SessionNo, 1)}
+	ctx := &Context{Prx: cprx, SessionNo: atomic.AddInt64(&prx.SessionNo, 1)}
 
 	defer func() {
 		rec := recover()
