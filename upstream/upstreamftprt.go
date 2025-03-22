@@ -32,7 +32,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	var resp *http.Response
 
 	ctx := fR.GetContext()
-	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 
 	proxy := ctx.UpstreamProxy
 
