@@ -175,7 +175,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		}
 	}
 
-	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" {
+	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" && configOut.PAC.Type != "" {
 		log.Printf("ERROR: ReadConfig: reading PAC type field: %s\n", configOut.PAC.Type)
 		log.Printf("ERROR: ReadConfig: only FILE and URL supported\n")
 		return nil, errors.New("Wrong PAC type")

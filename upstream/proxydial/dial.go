@@ -28,7 +28,7 @@ func c2s(conn net.Conn) string {
 // Dial for TLS connection using CONNECT method
 // This works as no response body is expected from the proxy
 func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) {
-	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(),ctx.SessionNo)
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
 	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
 	var err error
