@@ -747,7 +747,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 						logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in response: %s %s\n", ctx.SessionNo, protocol, description)
 						spos := strings.Index(description, ":")
 						if ctx.AccessLog.Protocol != "" {
-							ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + protocol + ";" + description[spos+2:]
+							ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + protocol + ":" + description[spos+2:]
 						} else {
 							ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
 						}
