@@ -53,13 +53,19 @@ func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string)
 	} else {
 		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
 	}
+	name, err = analyseAsUpgradePacketResponse(SessionNo, packet)
+	if err == nil {
+		return "Upgrade", "Protocol: " + name
+	} else {
+		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
+	}
 	return "Unknown", ""
 }
 
 func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
-	isSSH, _ := regexp.MatchString("SSH-\\d\\.\\d.*", string(initialMessage))
+	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
 	if isSSH {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
@@ -77,7 +83,7 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
-	isHTTP, _ := regexp.MatchString("[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
+	isHTTP, _ := regexp.MatchString("^[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
 	if isHTTP {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
@@ -86,9 +92,9 @@ func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 		}
 		return msgString[:pos], nil
 	} else {
-		logging.Printf("DEBUG", "analyseAsHTTPPacket: SessionID:%d packet a HTTP packet\n", SessionNo)
+		logging.Printf("DEBUG", "analyseAsHTTPPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
 	}
-	return "", errors.New("Not a SSH stream")
+	return "", errors.New("Not a HTTP stream")
 }
 
 func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
@@ -250,7 +256,7 @@ END:
 func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
-	isFTP, _ := regexp.MatchString("(120|220|421).*\\r\\n", string(initialMessage))
+	isFTP, _ := regexp.MatchString("^(120|220|421).*\\r\\n", string(initialMessage))
 	if isFTP {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
@@ -264,10 +270,33 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	return "", errors.New("Not a FTP stream")
 }
 
+func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, error) {
+	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	initialMessage := cryptobyte.String(packet)
+	isUpgrade, _ := regexp.MatchString("^HTTP/\\d\\.\\d 101.*\\r\\n", string(initialMessage))
+	if isUpgrade {
+		msgString := string(initialMessage)
+		upgradePos := strings.Index(msgString, "Upgrade: ")
+		lenUpgrade := len("Upgrade: ")
+		if upgradePos < 0 {
+			upgradePos = 0
+			lenUpgrade = 0
+		}
+		pos := strings.Index(msgString, "\n")
+		if strings.Index(msgString[upgradePos:], "\r") < pos {
+			pos = strings.Index(msgString[upgradePos:], "\r")
+		}
+		return msgString[upgradePos+lenUpgrade : upgradePos+pos], nil
+	} else {
+		logging.Printf("DEBUG", "analyseAsUpgradePacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
+	}
+	return "", errors.New("Not an Upgrade")
+}
+
 func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	initialMessage := cryptobyte.String(packet)
-	isSSH, _ := regexp.MatchString("SSH-\\d\\.\\d.*", string(initialMessage))
+	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
 	if isSSH {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")

@@ -687,7 +687,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					if protocol != "Unknown" {
 						if protocol != "TLS" {
 							logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in request: %s %s\n", ctx.SessionNo, protocol, description)
-							ctx.AccessLog.Protocol = protocol
+							spos := strings.Index(ctx.AccessLog.Protocol, "Upgrade")
+							if spos >= 0 {
+								ctx.AccessLog.Protocol = protocol + "/" + ctx.AccessLog.Protocol
+							} else {
+								ctx.AccessLog.Protocol = protocol
+							}
 						} else {
 							logging.Printf("INFO", "doConnect: SessionID:%d Found in request: %s %s\n", ctx.SessionNo, protocol, description)
 							spos := strings.Index(description, ":")
@@ -740,7 +745,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					protocol, description := protocol.AnalyseFirstPacketResponse(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
 						logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in response: %s %s\n", ctx.SessionNo, protocol, description)
-						ctx.AccessLog.Protocol = protocol
+						spos := strings.Index(description, ":")
+						if ctx.AccessLog.Protocol != "" {
+							ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + protocol + ";" + description[spos+2:]
+						} else {
+							ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
+						}
 					}
 				}
 				FirstPacketResponse = false
