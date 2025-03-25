@@ -10,7 +10,7 @@ import (
 )
 
 func AnalyseFirstPacket(SessionNo int64, packet []byte) (string, string) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 
 	name, err := analyseAsTLSPacket(SessionNo, packet)
 	if err == nil {
@@ -34,7 +34,7 @@ func AnalyseFirstPacket(SessionNo int64, packet []byte) (string, string) {
 }
 
 func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	//	name, err := analyseAsTLSPacketResponse(packet)
 	//	if err == nil {
 	//		return "TLS", "SNI name: "+name
@@ -63,7 +63,7 @@ func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string)
 }
 
 func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
 	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
 	if isSSH {
@@ -81,7 +81,7 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 
 // Request-Line   = Method SP Request-URI SP HTTP-Version
 func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
 	isHTTP, _ := regexp.MatchString("^[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
 	if isHTTP {
@@ -98,7 +98,7 @@ func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 }
 
 func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	//
 	// Using https://www.agwa.name/blog/post/parsing_tls_client_hello_with_cryptobyte
 	// and https://datatracker.ietf.org/doc/html/rfc6066#section-3 as guidance
@@ -254,7 +254,7 @@ END:
 }
 
 func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
 	isFTP, _ := regexp.MatchString("^(120|220|421).*\\r\\n", string(initialMessage))
 	if isFTP {
@@ -271,7 +271,7 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 }
 
 func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
 	isUpgrade, _ := regexp.MatchString("^HTTP/\\d\\.\\d 101.*\\r\\n", string(initialMessage))
 	if isUpgrade {
@@ -282,7 +282,7 @@ func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, err
 			upgradePos = 0
 			lenUpgrade = 0
 		}
-		pos := strings.Index(msgString, "\n")
+		pos := strings.Index(msgString[upgradePos:], "\n")
 		if strings.Index(msgString[upgradePos:], "\r") < pos {
 			pos = strings.Index(msgString[upgradePos:], "\r")
 		}
@@ -294,7 +294,7 @@ func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, err
 }
 
 func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
 	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
 	if isSSH {
