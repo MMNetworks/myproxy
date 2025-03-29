@@ -270,10 +270,11 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	return "", errors.New("Not a FTP stream")
 }
 
+// Response-Line   = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
 func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isUpgrade, _ := regexp.MatchString("^HTTP/\\d\\.\\d 101.*\\r\\n", string(initialMessage))
+	isUpgrade, _ := regexp.MatchString("^HTTP/\\d\\.\\d 101 .*\\r\\n", string(initialMessage))
 	if isUpgrade {
 		msgString := string(initialMessage)
 		upgradePos := strings.Index(msgString, "Upgrade: ")
