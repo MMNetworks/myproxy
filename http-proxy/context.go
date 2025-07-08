@@ -913,7 +913,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	r = req
 	ctx.AccessLog.Method = r.Method
 	ctx.AccessLog.Scheme = r.URL.Scheme
-	ctx.AccessLog.Url = r.URL.String()
+	ctx.AccessLog.Url = r.URL.Redacted()
 	ctx.AccessLog.Version = r.Proto
 	return
 }
