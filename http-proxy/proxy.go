@@ -227,7 +227,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.AccessLog.UpstreamProxyIP = ""
 	ctx.AccessLog.Method = r.Method
 	ctx.AccessLog.Scheme = r.URL.Scheme
-	ctx.AccessLog.Url = r.URL.String()
+	ctx.AccessLog.Url = r.URL.Redacted()
 	ctx.AccessLog.Version = r.Proto
 	ctx.AccessLog.Status = ""
 	ctx.AccessLog.BytesIN = 0
