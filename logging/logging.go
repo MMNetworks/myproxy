@@ -9,6 +9,24 @@ import (
 	"time"
 )
 
+const (
+	SSL20 = "2"
+	SSL30 = "300"
+	TLS10 = "301"
+	TLS11 = "302"
+	TLS12 = "303"
+	TLS13 = "304"
+)
+
+var TLSString = map[string]string{
+	SSL20: "SSL 2.0",
+	SSL30: "SSL 3.0",
+	TLS10: "TLS 1.0",
+	TLS11: "TLS 1.1",
+	TLS12: "TLS 1.2",
+	TLS13: "TLS 1.3",
+}
+
 func GetFunctionName() string {
 	pc, _, _, _ := runtime.Caller(1)
 	fn := runtime.FuncForPC(pc)

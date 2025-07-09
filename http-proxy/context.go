@@ -805,16 +805,34 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					protocol, description := protocol.AnalyseFirstPacketResponse(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
-						logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in response: %s %s\n", ctx.SessionNo, protocol, description)
-						spos := strings.Index(description, ":")
-						if ctx.AccessLog.Protocol != "" {
-							ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + protocol + ":" + description[spos+2:]
+						if protocol != "TLS" {
+							logging.Printf("INFO", "doConnect: SessionID:%d Found tunnelled protocol in response: %s %s\n", ctx.SessionNo, protocol, description)
+							spos := strings.Index(description, ":")
+							if ctx.AccessLog.Protocol != "" {
+								ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + protocol + ":" + description[spos+2:]
+							} else {
+								ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
+							}
 						} else {
-							ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
+							logging.Printf("INFO", "doConnect: SessionID:%d Found in request: %s %s\n", ctx.SessionNo, protocol, description)
+							spos := strings.Index(description, ":")
+							tlsVersion := logging.TLSString[description[spos+2:]]
+							if tlsVersion == "" {
+								tlsVersion = "TLS ?"
+							}
+							if ctx.AccessLog.Protocol != "" {
+								if strings.HasPrefix(ctx.AccessLog.Protocol, "TLS") {
+									ctx.AccessLog.Protocol = strings.ReplaceAll(ctx.AccessLog.Protocol, "TLS", tlsVersion)
+								} else {
+									ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + tlsVersion
+								}
+							} else {
+								ctx.AccessLog.Protocol = tlsVersion
+							}
 						}
 					}
 				}
-				FirstPacketResponse = false
+
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 			}
 			n, err := io.Copy(hijConn, remoteConn)
