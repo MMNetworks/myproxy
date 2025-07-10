@@ -156,15 +156,15 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS handshake message length: %d\n", SessionNo, messageLength)
 	}
 
-	if !handshakeMessage.ReadUint8(&messageType) || messageType != 1 {
-		if messageType != 1 {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS Client Hello message. Message Type: %d\n", SessionNo, messageType)
+	if !handshakeMessage.ReadUint8(&messageType) || logging.TLSHandshakeType[messageType] != "client_hello" {
+		if logging.TLSHandshakeType[messageType] != "client_hello" {
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS Client Hello message. Message Type: %s\n", SessionNo, logging.TLSHandshakeType[messageType])
 		} else {
 			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS Client Hello message. Can't read uint8\n", SessionNo)
 		}
 		goto END
 	} else {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS Client Hello message: %d\n", SessionNo, messageType)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS Client Hello message: %s\n", SessionNo, logging.TLSHandshakeType[messageType])
 	}
 
 	if !handshakeMessage.ReadUint24LengthPrefixed(&clientHello) {
@@ -206,17 +206,18 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 	}
 
 	if !clientHello.ReadUint16LengthPrefixed(&ciphersuitesBytes) {
-		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello cypher suite length\n", SessionNo)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello cipher suite length\n", SessionNo)
 		goto END
 	}
 
 	for !ciphersuitesBytes.Empty() {
 		var ciphersuite uint16
 		if !ciphersuitesBytes.ReadUint16(&ciphersuite) {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello cypher suite\n", SessionNo)
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello cipher suite\n", SessionNo)
 			goto END
 
 		}
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello supported cipher suite: %s\n", SessionNo, logging.TLSCipher[fmt.Sprintf("%x", ciphersuite)])
 	}
 
 	if !clientHello.ReadUint8LengthPrefixed((*cryptobyte.String)(&legacyCompressionMethods)) {
@@ -239,14 +240,14 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello extension type\n", SessionNo)
 			goto END
 		} else {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello extension type %d\n", SessionNo, extType)
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello extension type %s\n", SessionNo, logging.TLSExtensionType[extType])
 		}
 		if !extensionsBytes.ReadUint16LengthPrefixed(&extData) {
 			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello extension data\n", SessionNo)
 			goto END
 		}
 		// SNI extension
-		if extType == 0 {
+		if logging.TLSExtensionType[extType] == "server_name" {
 			if !extData.ReadUint16LengthPrefixed(&sniBytes) {
 				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI data\n", SessionNo)
 				goto END
@@ -265,7 +266,7 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name %s\n", SessionNo, string(sniName))
 				}
 			}
-		} else if extType == 43 {
+		} else if logging.TLSExtensionType[extType] == "supported_versions" {
 			// supported TLS Versions
 			if !extData.ReadUint8LengthPrefixed(&tlsVersionList) {
 				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello TLS Version list\n", SessionNo)
@@ -317,6 +318,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	var sniNameType uint8
 	var sniName cryptobyte.String
 	var tlsVersion string = "Unknown"
+	var tlsCipher string = "Unknown"
 
 	handshakeMessage := cryptobyte.String(packet)
 
@@ -344,15 +346,15 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake message length: %d\n", SessionNo, messageLength)
 	}
 
-	if !handshakeMessage.ReadUint8(&messageType) || messageType != 2 {
-		if messageType != 2 {
-			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Not a TLS Server Hello message. Message Type: %d\n", SessionNo, messageType)
+	if !handshakeMessage.ReadUint8(&messageType) || logging.TLSHandshakeType[messageType] != "server_hello" {
+		if logging.TLSHandshakeType[messageType] != "server_hello" {
+			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Not a TLS Server Hello message. Message Type: %s\n", SessionNo, logging.TLSHandshakeType[messageType])
 		} else {
 			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Not a TLS Server Hello message. Can't read uint8\n", SessionNo)
 		}
 		goto END
 	} else {
-		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS Server Hello message: %d\n", SessionNo, messageType)
+		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS Server Hello message: %s\n", SessionNo, logging.TLSHandshakeType[messageType])
 	}
 
 	//	if !handshakeMessage.ReadUint24LengthPrefixed(&serverHello) || !handshakeMessage.Empty() {
@@ -368,7 +370,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 		} else {
 			switch contentType {
 			case 4, 5, 8, 11, 13, 14, 15, 20, 24, 254: // Valid Handshake Type
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also handshake type: %d\n", SessionNo, contentType)
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also handshake type: %s\n", SessionNo, logging.TLSHandshakeType[contentType])
 			default:
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with unknown handshake type: %d\n", SessionNo, contentType)
 				goto END
@@ -395,9 +397,11 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	}
 
 	if !serverHello.ReadUint16(&ciphersuite) {
-		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello cypher suite\n", SessionNo)
+		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello cipher suite\n", SessionNo)
 		goto END
 	}
+	logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello negotiated cipher suite: %s\n", SessionNo, logging.TLSCipher[fmt.Sprintf("%x", ciphersuite)])
+	tlsCipher = fmt.Sprintf("%x", ciphersuite)
 
 	if !serverHello.ReadUint8(&legacyCompressionMethod) {
 		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello compression methods\n", SessionNo)
@@ -419,14 +423,14 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello extension type\n", SessionNo)
 			goto END
 		} else {
-			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello extension type %d\n", SessionNo, extType)
+			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello extension type %s\n", SessionNo, logging.TLSExtensionType[extType])
 		}
 		if !extensionsBytes.ReadUint16LengthPrefixed(&extData) {
 			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello extension data\n", SessionNo)
 			goto END
 		}
 		// SNI extension
-		if extType == 0 {
+		if logging.TLSExtensionType[extType] == "server_name" {
 			if !extData.ReadUint16LengthPrefixed(&sniBytes) {
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI data\n", SessionNo)
 				goto END
@@ -445,7 +449,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Read Server Hello SNI name %s\n", SessionNo, string(sniName))
 				}
 			}
-		} else if extType == 43 {
+		} else if logging.TLSExtensionType[extType] == "supported_versions" {
 			// negotiated TLS Versions
 			var version uint16
 			if !extData.ReadUint16(&version) {
@@ -459,7 +463,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 		}
 	}
 
-	return tlsVersion, nil
+	return tlsVersion + ":" + tlsCipher, nil
 
 END:
 	return "", errors.New("Not a TLS stream")

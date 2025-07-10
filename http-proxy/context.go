@@ -677,10 +677,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	case ConnectProxy:
 		conn, err := ctx.Prx.Dial(ctx, "tcp", host)
 		if err != nil {
-			hijConn.Write([]byte("HTTP/1.1 404 Not Found\r\n\r\n"))
+			hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
 			hijConn.Close()
 			ctx.doError("Connect", ErrRemoteConnect, err)
-			ctx.AccessLog.Status = "404 " + err.Error()
+			ctx.AccessLog.Status = "500 " + err.Error()
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 			logging.AccesslogWrite(ctx.AccessLog)
@@ -757,7 +757,11 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 						} else {
 							logging.Printf("INFO", "doConnect: SessionID:%d Found in request: %s %s\n", ctx.SessionNo, protocol, description)
 							spos := strings.Index(description, ":")
-							ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
+							if strings.HasPrefix(ctx.AccessLog.Protocol, "TLS") {
+								ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + ":" + description[spos+2:]
+							} else {
+								ctx.AccessLog.Protocol = protocol + ":" + description[spos+2:]
+							}
 						}
 					}
 				}
@@ -816,18 +820,24 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 						} else {
 							logging.Printf("INFO", "doConnect: SessionID:%d Found in request: %s %s\n", ctx.SessionNo, protocol, description)
 							spos := strings.Index(description, ":")
-							tlsVersion := logging.TLSString[description[spos+2:]]
+							tlsInfo := description[spos+2:]
+							spos = strings.Index(tlsInfo, ":")
+							tlsVersion := logging.TLSString[tlsInfo[:spos]]
+							tlsCipher := logging.TLSCipher[tlsInfo[spos+1:]]
 							if tlsVersion == "" {
 								tlsVersion = "TLS ?"
 							}
+							if tlsCipher == "" {
+								tlsCipher = "Cipher ?"
+							}
 							if ctx.AccessLog.Protocol != "" {
 								if strings.HasPrefix(ctx.AccessLog.Protocol, "TLS") {
-									ctx.AccessLog.Protocol = strings.ReplaceAll(ctx.AccessLog.Protocol, "TLS", tlsVersion)
+									ctx.AccessLog.Protocol = strings.ReplaceAll(ctx.AccessLog.Protocol, "TLS", tlsVersion+":"+tlsCipher)
 								} else {
-									ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + tlsVersion
+									ctx.AccessLog.Protocol = ctx.AccessLog.Protocol + "/" + tlsVersion + ":" + tlsCipher
 								}
 							} else {
-								ctx.AccessLog.Protocol = tlsVersion
+								ctx.AccessLog.Protocol = tlsVersion + ":" + tlsCipher
 							}
 						}
 					}
