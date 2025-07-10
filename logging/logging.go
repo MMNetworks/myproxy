@@ -467,6 +467,7 @@ var TLSExtensionType = map[uint16]string{
 	60:    "sequence_number_encryption_algorithms",
 	61:    "rrc",
 	62:    "tls_flags",
+	13172: " next_protocol_negotiation", // Not IANA assigned !!
 	64768: "ech_outer_extensions",
 	65037: "encrypted_client_hello",
 	65281: "renegotiation_info",
