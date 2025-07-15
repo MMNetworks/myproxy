@@ -18,6 +18,14 @@ var TLSString = map[string]string{
 	"304": "TLS 1.3",
 }
 
+var TLSRecordType = map[uint8]string{
+	0:  "invalid",
+	20: "change_cipher_spec",
+	21: "alert",
+	22: "handshake",
+	23: "application_data",
+}
+
 var TLSHandshakeType = map[uint8]string{
 	0:   "hello_request_RESERVED",
 	1:   "client_hello",
