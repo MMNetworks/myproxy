@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"fmt"
 	"myproxy/readconfig"
 	"time"
 )
@@ -44,11 +45,36 @@ type AccessLogRecord struct {
 	Duration time.Duration
 }
 
+func humanReadableBitrate(bps float64) string {
+	const (
+		Kbps = 1_000
+		Mbps = 1_000_000
+		Gbps = 1_000_000_000
+		Tbps = 1_000_000_000_000
+	)
+
+	switch {
+	case bps >= Tbps:
+		return fmt.Sprintf("%.2fTbps", bps/Tbps)
+	case bps >= Gbps:
+		return fmt.Sprintf("%.2fGbps", bps/Gbps)
+	case bps >= Mbps:
+		return fmt.Sprintf("%.2fMbps", bps/Mbps)
+	case bps >= Kbps:
+		return fmt.Sprintf("%.2fKbps", bps/Kbps)
+	default:
+		return fmt.Sprintf("%.2fbps", bps)
+	}
+}
+
 func AccesslogWrite(record AccessLogRecord) (int, error) {
 	var accesslogFilename string = "STDOUT"
 	if readconfig.Config != nil {
 		accesslogFilename = readconfig.Config.Logging.AccessLog
 	}
-	length, err := osPrintf(accesslogFilename, "ACCESS", "proxy=%s;proxyIP=%s;sessionID=%d;sourceIP=%s;destinationIP=%s;forwardedIP=%s;upstreamProxyIP=%s;method=%s;scheme=%s;url=%s;version=%s;status=%s;bytesIN=%d;bytesOUT=%d;protocol=%s;starttime=%s;endtime=%s;duration=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String())
+	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
+	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
+
+	length, err := osPrintf(accesslogFilename, "ACCESS", "proxy=%s;proxyIP=%s;sessionID=%d;sourceIP=%s;destinationIP=%s;forwardedIP=%s;upstreamProxyIP=%s;method=%s;scheme=%s;url=%s;version=%s;status=%s;bytesIN=%d;bytesOUT=%d;protocol=%s;starttime=%s;endtime=%s;duration=%s,speedIN=%s,speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 	return length, err
 }
