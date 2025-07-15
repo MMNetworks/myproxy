@@ -178,7 +178,7 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 			goto END
 		} else {
 			switch contentType {
-			case 4, 5, 8, 11, 13, 14, 15, 20, 24, 254: // Valid Handshake Type
+			case 4, 5, 8, 11, 13, 14, 15, 20, 22, 24, 254: // Valid Handshake Type
 				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Packet contains also handshake type: %d\n", SessionNo, contentType)
 			default:
 				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello handshake record with unknown handshake type: %d\n", SessionNo, contentType)
@@ -374,7 +374,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			goto END
 		} else {
 			switch contentType {
-			case 4, 5, 8, 11, 13, 14, 15, 20, 24, 254: // Valid Handshake Type
+			case 4, 5, 8, 11, 13, 14, 15, 20, 22, 24, 254: // Valid Handshake Type
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also handshake type: %d:%s\n", SessionNo, contentType, logging.TLSHandshakeType[contentType])
 			default:
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with unknown handshake type: %d\n", SessionNo, contentType)
