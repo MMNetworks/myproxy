@@ -132,9 +132,9 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 
 	handshakeMessage := cryptobyte.String(packet)
 
-	if !handshakeMessage.ReadUint8(&contentType) || contentType != 22 {
-		if contentType != 22 {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS handshake message. Message Type: %d\n", SessionNo, contentType)
+	if !handshakeMessage.ReadUint8(&contentType) || logging.TLSRecordType[contentType] != "handshake" {
+		if logging.TLSRecordType[contentType] != "handshake" {
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS handshake message. Record Type: %d:%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 		} else {
 			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Not a TLS handshake message. Can't read uint8\n", SessionNo)
 		}
@@ -178,10 +178,10 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 			goto END
 		} else {
 			switch contentType {
-			case 4, 5, 8, 11, 13, 14, 15, 20, 22, 24, 254: // Valid Handshake Type
-				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Packet contains also handshake type: %d\n", SessionNo, contentType)
+			case 0, 20, 21, 22, 23: // Valid Handshake Type
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Packet contains also handshake type: %d:%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 			default:
-				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello handshake record with unknown handshake type: %d\n", SessionNo, contentType)
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello handshake record with unknown handshake type: %d:%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 				goto END
 			}
 		}
@@ -327,9 +327,9 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 
 	handshakeMessage := cryptobyte.String(packet)
 
-	if !handshakeMessage.ReadUint8(&contentType) || contentType != 22 {
-		if contentType != 22 {
-			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Not a TLS handshake message. Message Type: %d\n", SessionNo, contentType)
+	if !handshakeMessage.ReadUint8(&contentType) || logging.TLSRecordType[contentType] != "handshake" {
+		if logging.TLSRecordType[contentType] != "handshake" {
+			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Not a TLS handshake message. Record Type: %d:%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 		} else {
 			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Not a TLS handshake message. Can't read uint8\n", SessionNo)
 		}
@@ -374,10 +374,10 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			goto END
 		} else {
 			switch contentType {
-			case 4, 5, 8, 11, 13, 14, 15, 20, 22, 24, 254: // Valid Handshake Type
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also handshake type: %d:%s\n", SessionNo, contentType, logging.TLSHandshakeType[contentType])
+			case 0, 20, 21, 22, 23: // Valid Handshake Type
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also handshake type: %d:%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 			default:
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with unknown handshake type: %d\n", SessionNo, contentType)
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with unknown handshake type: %d:%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 				goto END
 			}
 		}
