@@ -248,23 +248,28 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 		}
 		// SNI extension
 		if logging.TLSExtensionType[extType] == "server_name" {
-			if !extData.ReadUint16LengthPrefixed(&sniBytes) {
-				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI data\n", SessionNo)
-				goto END
-			}
-			for !sniBytes.Empty() {
-				if !sniBytes.ReadUint8(&sniNameType) {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI name type\n", SessionNo)
+			if extData.Empty() {
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name s empty\n", SessionNo)
+			} else {
+				if !extData.ReadUint16LengthPrefixed(&sniBytes) {
+					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI data\n", SessionNo)
 					goto END
-				} else {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name type: %d\n", SessionNo, sniNameType)
 				}
-				if !sniBytes.ReadUint16LengthPrefixed(&sniName) {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI name\n", SessionNo)
-					goto END
-				} else {
-					logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name %s\n", SessionNo, string(sniName))
+				for !sniBytes.Empty() {
+					if !sniBytes.ReadUint8(&sniNameType) {
+						logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI name type\n", SessionNo)
+						goto END
+					} else {
+						logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name type: %d\n", SessionNo, sniNameType)
+					}
+					if !sniBytes.ReadUint16LengthPrefixed(&sniName) {
+						logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello SNI name\n", SessionNo)
+						goto END
+					} else {
+						logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Client Hello SNI name %s\n", SessionNo, string(sniName))
+					}
 				}
+
 			}
 		} else if logging.TLSExtensionType[extType] == "supported_versions" {
 			// supported TLS Versions
@@ -431,22 +436,27 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 		}
 		// SNI extension
 		if logging.TLSExtensionType[extType] == "server_name" {
-			if !extData.ReadUint16LengthPrefixed(&sniBytes) {
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI data\n", SessionNo)
-				goto END
-			}
-			for !sniBytes.Empty() {
-				if !sniBytes.ReadUint8(&sniNameType) {
-					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI name type\n", SessionNo)
+			if extData.Empty() {
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Read Server Hello SNI name is empty\n", SessionNo)
+			} else {
+				if !extData.ReadUint16LengthPrefixed(&sniBytes) {
+					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI data\n", SessionNo)
 					goto END
 				} else {
-					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Read Server Hello SNI name type: %d\n", SessionNo, sniNameType)
-				}
-				if !sniBytes.ReadUint16LengthPrefixed(&sniName) {
-					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI name\n", SessionNo)
-					goto END
-				} else {
-					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Read Server Hello SNI name %s\n", SessionNo, string(sniName))
+					for !sniBytes.Empty() {
+						if !sniBytes.ReadUint8(&sniNameType) {
+							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI name type\n", SessionNo)
+							goto END
+						} else {
+							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Read Server Hello SNI name type: %d\n", SessionNo, sniNameType)
+						}
+						if !sniBytes.ReadUint16LengthPrefixed(&sniName) {
+							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello SNI name\n", SessionNo)
+							goto END
+						} else {
+							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Read Server Hello SNI name %s\n", SessionNo, string(sniName))
+						}
+					}
 				}
 			}
 		} else if logging.TLSExtensionType[extType] == "supported_versions" {

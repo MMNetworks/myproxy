@@ -74,26 +74,29 @@ func SetProxy(ctx *httpproxy.Context) error {
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Cache-Control: %s\n", ctx.SessionNo, Values)
 				ipos1 := strings.Index(Values, "max-age=")
 				ipos2 := strings.Index(Values, ",")
-				var cacheTime time.Duration
-				if ipos2 > ipos1 {
-					cacheTime, err = time.ParseDuration(Values[ipos1+8:ipos2] + "s")
-					if err != nil {
-						logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: %v\n", ctx.SessionNo, err)
-						return err
+				var cacheTime time.Duration = 3600 * time.Second
+				if ipos1 > -1 {
+					if ipos2 > ipos1 {
+						cacheTime, err = time.ParseDuration(Values[ipos1+8:ipos2] + "s")
+						if err != nil {
+							logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: %v\n", ctx.SessionNo, err)
+							return err
+						}
+					} else {
+						cacheTime, err = time.ParseDuration(Values[ipos1+8:ipos2] + "s")
+						if err != nil {
+							logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: %v\n", ctx.SessionNo, err)
+							return err
+						}
 					}
 				} else {
-					cacheTime, err = time.ParseDuration(Values[ipos1+8:ipos2] + "s")
-					if err != nil {
-						logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: %v\n", ctx.SessionNo, err)
-						return err
-					}
+					logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: max-age not send\n", ctx.SessionNo)
 				}
 				if readconfig.Config.PAC.CacheTime != 0 {
-					timeNext = time.Now().Add(time.Duration(readconfig.Config.PAC.CacheTime) * time.Second)
-				} else {
-					timeNext = time.Now().Add(cacheTime)
+					cacheTime = time.Duration(readconfig.Config.PAC.CacheTime) * time.Second
 				}
-
+				timeNext = time.Now().Add(cacheTime)
+				logging.Printf("DEBUG", "SetProxy: SessionID:%d set cache time to: %s\n", ctx.SessionNo, cacheTime.String())
 				pResp, err = hclient.Get(readconfig.Config.PAC.URL)
 				if err != nil {
 					logging.Printf("ERROR", "SetProxy: SessionID:%d could not get PAC URL: %v\n", ctx.SessionNo, err)
