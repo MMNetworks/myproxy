@@ -18,6 +18,8 @@ type AccessLogRecord struct {
 	SourceIP string
 	// destinaion IP
 	DestinationIP string
+	// User Agent
+	UserAgent string
 	// forwarded IP from header
 	ForwardedIP string
 	// upstream proxy IP
@@ -76,7 +78,7 @@ func AccesslogWrite(record AccessLogRecord) (int, error) {
 	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
 	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
 
-	accessLogline := fmt.Sprintf("proxy=%s;proxyIP=%s;sessionID=%d;sourceIP=%s;destinationIP=%s;forwardedIP=%s;upstreamProxyIP=%s;method=%s;scheme=%s;url=%s;version=%s;status=%s;bytesIN=%d;bytesOUT=%d;protocol=%s;starttime=%s;endtime=%s;duration=%s;speedIN=%s;speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
+	accessLogline := fmt.Sprintf("proxy=%s;proxyIP=%s;sessionID=%d;sourceIP=%s;destinationIP=%s;user-agent=%s,forwardedIP=%s;upstreamProxyIP=%s;method=%s;scheme=%s;url=%s;version=%s;status=%s;bytesIN=%d;bytesOUT=%d;protocol=%s;starttime=%s;endtime=%s;duration=%s;speedIN=%s;speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 
 	// Make sure output is clean csv format (comma seperated) after ACCESS: for postprocessing
 	runes := []rune{'^', '£', '&', '!', '|'}
