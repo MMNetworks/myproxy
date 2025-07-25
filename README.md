@@ -175,7 +175,7 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>wireshark:</li>
 <ul>
 <li>settings for wireshark listen ip and port. You can connect using wireshark -k -i TCP@&lt;ip&gt;:&lt;port&gt; </li>
-<li>The include/exclude list can be used to limt access to wireshark listening port</li>
+<li>The include/exclude list can be used to limit access to wireshark listening port</li>
 <ul>
 </ul>
 </ul>
