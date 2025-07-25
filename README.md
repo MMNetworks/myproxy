@@ -93,6 +93,50 @@ The install will create the service as a manual started service. autostart and m
 
 If started manually via the Service UI the start paramters -c \<configfile\> have to be provided.
 
+### MacOS
+
+On MacOS, you can run `myproxy` as a launchd service (agent) in your own user account, no need for root privileges.
+
+First, create a `~/Library/LaunchAgents` directory.
+
+Then create a plist file with a unique name (`com.${USER}.myproxy.plist` for instance) with the following contents:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+        <key>label</key>
+        <string>com.<your-username>.myproxy</string>
+
+        <key>ProgramArguments</key>
+        <array>
+                <string>/Users/<your-username>/bin/myproxy</string>
+                <string>-c</string>
+                <string>/Users/.config/myproxy/config/myprox.yaml</string>
+        </array>
+
+        <key>RunAtLoad</key>
+        <true/>
+
+        <key>KeepAlive</key>
+        <true/>
+
+        <key>StandardOutPath</key>
+        <string>/tmp/myproxy.out</string>
+
+        <key>StandardErrorPath</key>
+        <string>/tmp/myproxy.err</string>
+</dict>
+</plist>
+
+```
+
+To install the service, run `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.${USER}.proxy.plist`.
+
+Please note that if you get any `launchctl` errors, you might need to `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.${USER}.proxy.plist` and bootstrap again because MacOS caches your plist file and won't be getting the fix.
+
+
 ## Usage
 
 Configuration is stored in a YAML file and can be supplied with a -c argument  
@@ -128,6 +172,14 @@ When using myproxy as Windows service make sure the file paths are absolute path
 </ul>
 </ul>
 </ul>
+<li>wireshark:</li>
+<ul>
+<li>settings for wireshark listen ip and port. You can connect using wireshark -k -i TCP@<ip>:<port> </li>
+<li>The include/exclude list can be used to limt access to wireshark listening port</li>
+<ul>
+</ul>
+</ul>
+</ul>
 <li>ftp:</li>
 <ul>
 <li>setting default username / password for ftp. Default is anonymous / anonymous@myproxy
@@ -140,6 +192,11 @@ When using myproxy as Windows service make sure the file paths are absolute path
 listen:
   ip: 127.0.0.1
   port: 9080
+wireshark:
+  ip: 127.0.0.1
+  port: 19000
+  incexc:
+     - "127.0.0.1/32"
 logging:
   level: "debug"
   file: "log_9080"

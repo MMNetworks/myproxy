@@ -4,19 +4,26 @@ import (
 	"crypto/sha256"
 	"flag"
 	"fmt"
+	"github.com/gopacket/gopacket/pcapgo"
 	"io"
 	"myproxy/http-proxy"
 	"myproxy/logging"
+	"myproxy/protocol"
 	"myproxy/readconfig"
 	"myproxy/upstream"
 	"myproxy/upstream/authenticate"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"regexp"
 	"strings"
 	// "github.com/yassinebenaid/godump"
 )
+
+var pcapwChan = make(chan pcapgo.Writer)
+var wiresharkAlive bool = false
+var wiresharkWriter pcapgo.Writer
 
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
@@ -183,6 +190,22 @@ func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// var err error
+
+	requestDump, err := httputil.DumpRequestOut(req, true)
+	if err != nil {
+		logging.Printf("ERROR", "%s: SessionID:%d request dump failed: %v\n", logging.GetFunctionName(), ctx.SessionNo, err)
+		return
+	}
+	dst := ctx.AccessLog.DestinationIP
+	if dst == "" {
+		dst = ctx.AccessLog.ProxyIP
+	}
+	src := ctx.AccessLog.SourceIP
+	err = protocol.WriteWireshark(src, dst, requestDump)
+	if err != nil {
+		logging.Printf("ERROR", "OnRequest: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		wiresharkAlive = false
+	}
 	return
 }
 
@@ -200,6 +223,18 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	}
 	// Add header "Via: go-httpproxy".
 	resp.Header.Add("Via", "myproxy")
+
+	responseDump, err := httputil.DumpResponse(resp, true)
+	dst := ctx.AccessLog.DestinationIP
+	if dst == "" {
+		dst = ctx.AccessLog.ProxyIP
+	}
+	src := ctx.AccessLog.SourceIP
+	err = protocol.WriteWireshark(dst, src, responseDump)
+	if err != nil {
+		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		wiresharkAlive = false
+	}
 }
 
 func runProxy(args []string) {
@@ -298,6 +333,17 @@ func runProxy(args []string) {
 	prx.OnConnect = OnConnect
 	prx.OnRequest = OnRequest
 	prx.OnResponse = OnResponse
+
+	// Wireshark Listen...
+	if readconfig.Config.Wireshark.IP != "" {
+		logging.Printf("INFO", "runProxy: Wireshark listener listening on %s:%s !!!\n", readconfig.Config.Wireshark.IP, readconfig.Config.Wireshark.Port)
+		listen := readconfig.Config.Wireshark.IP + ":" + readconfig.Config.Wireshark.Port
+		err = protocol.ListenWireshark(listen)
+		if err != nil {
+			logging.Printf("ERROR", "runProxy: WiresharkListen error: %v\n", err)
+			return
+		}
+	}
 
 	// Listen...
 	logging.Printf("DEBUG", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
