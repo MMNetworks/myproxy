@@ -53,6 +53,11 @@ type MITM struct {
 	IncExc     []string `yaml:"incexc"`
 	IncExcFile string   `yaml:"incexcfile"`
 }
+type Wireshark struct {
+	IP     string   `yaml:"ip"`
+	Port   string   `yaml:"port"`
+	IncExc []string `yaml:"incexc"`
+}
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
 	NtlmDomain     string   `yaml:"NTLMDomain"`
@@ -76,6 +81,7 @@ type Schema struct {
 	Connection Connection `yaml:"connection"`
 	FTP        FTP        `yaml:"ftp"`
 	MITM       MITM       `yaml:"mitm"`
+	Wireshark  Wireshark  `yaml:"wireshark"`
 }
 
 func ReadConfig(configFilename string) (*Schema, error) {
@@ -354,6 +360,9 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 	if configOut.Listen.Port == "" {
 		configOut.Listen.Port = "9080"
+	}
+	if configOut.Wireshark.Port == "" {
+		configOut.Wireshark.Port = "19000"
 	}
 	if configOut.Logging.Level == "" {
 		configOut.Logging.Level = "info"
