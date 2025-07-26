@@ -149,11 +149,11 @@ func acceptWireshark(listener net.Listener) {
 	}
 }
 
-func WriteWireshark(src string, dst string, data []byte) error {
+func WriteWireshark(SessionNo int64, src string, dst string, data []byte) error {
 	var err error
 
 	if concurrent == 0 {
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d No wireshark connection available\n", 0)
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d No wireshark connection available\n", SessionNo)
 		return nil
 	}
 	srcIP := src
@@ -165,7 +165,7 @@ func WriteWireshark(src string, dst string, data []byte) error {
 		srcIP = src[:cpos]
 		srcPort, err = strconv.Atoi(src[cpos+1:])
 		if err != nil {
-			logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Cannot convert source port %s to int %v\n", 0, src, err)
+			logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Cannot convert source port %s to int %v\n", SessionNo, src, err)
 			return err
 		}
 
@@ -175,7 +175,7 @@ func WriteWireshark(src string, dst string, data []byte) error {
 		dstIP = dst[:cpos]
 		dstPort, err = strconv.Atoi(dst[cpos+1:])
 		if err != nil {
-			logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Cannot convert destination port %s to int %v\n", 0, dst, err)
+			logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Cannot convert destination port %s to int %v\n", SessionNo, dst, err)
 			return err
 		}
 	}
@@ -187,12 +187,14 @@ func WriteWireshark(src string, dst string, data []byte) error {
 		EthernetType: layers.EthernetTypeIPv4,
 	}
 
+	logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add Identifier %d to packet\n", SessionNo, uint16(SessionNo&0xFFFF))
 	// Create IP layer
 	ip := layers.IPv4{
 		SrcIP:    net.ParseIP(srcIP), // Source IP
 		DstIP:    net.ParseIP(dstIP), // Destination IP
 		Protocol: layers.IPProtocolTCP,
 		Version:  4,
+		Id:       uint16(SessionNo & 0xFFFF),
 		IHL:      5,
 		TTL:      64,
 	}
@@ -228,7 +230,7 @@ func WriteWireshark(src string, dst string, data []byte) error {
 	}
 	err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 	if err != nil {
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Could not serialize packet %v\n", 0, err)
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Could not serialize packet %v\n", SessionNo, err)
 		return err
 	}
 	// Write the packet to the PCAP connection
@@ -242,7 +244,7 @@ func WriteWireshark(src string, dst string, data []byte) error {
 		err = errors.New("Emptu pcapWriter pointer")
 	}
 	if err != nil {
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Could not write packet %v\n", 0, err)
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Could not write packet %v\n", SessionNo, err)
 		return err
 	}
 	return nil

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"flag"
 	"fmt"
-	"github.com/gopacket/gopacket/pcapgo"
 	"io"
 	"myproxy/http-proxy"
 	"myproxy/logging"
@@ -20,10 +19,6 @@ import (
 	"strings"
 	// "github.com/yassinebenaid/godump"
 )
-
-var pcapwChan = make(chan pcapgo.Writer)
-var wiresharkAlive bool = false
-var wiresharkWriter pcapgo.Writer
 
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
@@ -193,7 +188,7 @@ func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 
 	requestDump, err := httputil.DumpRequestOut(req, true)
 	if err != nil {
-		logging.Printf("ERROR", "%s: SessionID:%d request dump failed: %v\n", logging.GetFunctionName(), ctx.SessionNo, err)
+		logging.Printf("ERROR", "%s: SessionID:%d Could not create request dump: %v\n", logging.GetFunctionName(), ctx.SessionNo, err)
 		return
 	}
 	dst := ctx.AccessLog.DestinationIP
@@ -201,10 +196,9 @@ func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 		dst = ctx.AccessLog.ProxyIP
 	}
 	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(src, dst, requestDump)
+	err = protocol.WriteWireshark(ctx.SessionNo, src, dst, requestDump)
 	if err != nil {
 		logging.Printf("ERROR", "OnRequest: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
-		wiresharkAlive = false
 	}
 	return
 }
@@ -225,15 +219,18 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	resp.Header.Add("Via", "myproxy")
 
 	responseDump, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
+		return
+	}
 	dst := ctx.AccessLog.DestinationIP
 	if dst == "" {
 		dst = ctx.AccessLog.ProxyIP
 	}
 	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(dst, src, responseDump)
+	err = protocol.WriteWireshark(ctx.SessionNo, dst, src, responseDump)
 	if err != nil {
 		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
-		wiresharkAlive = false
 	}
 }
 
