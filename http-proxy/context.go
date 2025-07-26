@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"github.com/secsy/goftp"
 	"io"
+	"io/ioutil"
 	"myproxy/logging"
 	"myproxy/protocol"
 	"myproxy/readconfig"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -266,6 +268,26 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		host += ":21"
 	}
 
+	reqSend := r
+	if r.URL.Scheme == "ftp" || r.URL.Scheme == "ftps" {
+		reqSend = new(http.Request)
+		*reqSend = *r
+		reqSend.URL = new(url.URL)
+		*reqSend.URL = *r.URL
+		reqSend.URL.Scheme = "http"
+	}
+	requestDump, err := httputil.DumpRequestOut(reqSend, true)
+	if err != nil {
+		logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
+	} else {
+		dst := ctx.AccessLog.ProxyIP
+		src := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(ctx.SessionNo, src, dst, requestDump)
+		if err != nil {
+			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+		}
+	}
+
 	logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 	resp, err := ctx.Prx.Rt.RoundTrip(r)
 	if err != nil {
@@ -314,6 +336,19 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	ctx.AccessLog.Status = resp.Status
 	resp.Request = r
 	resp.TransferEncoding = nil
+
+	responseDump, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
+	} else {
+		dst := ctx.AccessLog.ProxyIP
+		src := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(ctx.SessionNo, dst, src, responseDump)
+		if err != nil {
+			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		}
+	}
+
 	err = ServeResponse(w, resp)
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Request", ErrResponseWrite, err)
@@ -389,6 +424,26 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	logging.Printf("DEBUG", "doFtp: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 	logging.Printf("DEBUG", "doFtp: SessionID:%d Set Username to %s\n", ctx.SessionNo, user)
 	logging.Printf("DEBUG", "doFtp: SessionID:%d Method %s\n", ctx.SessionNo, method)
+
+	reqSend := r
+	if r.URL.Scheme == "ftp" || r.URL.Scheme == "ftps" {
+		reqSend = new(http.Request)
+		*reqSend = *r
+		reqSend.URL = new(url.URL)
+		*reqSend.URL = *r.URL
+		reqSend.URL.Scheme = "http"
+	}
+	requestDump, err := httputil.DumpRequestOut(reqSend, true)
+	if err != nil {
+		logging.Printf("ERROR", "doFtp: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
+	} else {
+		dst := ctx.AccessLog.ProxyIP
+		src := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(ctx.SessionNo, src, dst, requestDump)
+		if err != nil {
+			logging.Printf("ERROR", "doFtp: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		}
+	}
 	// Try to count bytes send & received based on log data
 	// It will miss
 	// 	first 220 Header from server
@@ -602,6 +657,41 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		}
 	}
 	respHeader.Set("Connection", "close")
+
+	st := http.StatusText(respCode)
+	if st != "" {
+		st = " " + st
+	}
+	var bodyReadCloser io.ReadCloser
+	var bodyContentLength = int64(0)
+	body := buf.Bytes()
+	if body != nil {
+		bodyReadCloser = ioutil.NopCloser(bytes.NewBuffer(body))
+		bodyContentLength = int64(len(body))
+	}
+	resp := &http.Response{
+		Status:        fmt.Sprintf("%d%s", respCode, st),
+		StatusCode:    respCode,
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Header:        respHeader,
+		Body:          bodyReadCloser,
+		ContentLength: bodyContentLength,
+	}
+
+	responseDump, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		logging.Printf("ERROR", "doFtp: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
+	} else {
+		dst := ctx.AccessLog.DestinationIP
+		src := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(ctx.SessionNo, dst, src, responseDump)
+		if err != nil {
+			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		}
+	}
+
 	err = ServeInMemory(w, respCode, respHeader, buf.Bytes())
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("doFtp", ErrResponseWrite, err)
