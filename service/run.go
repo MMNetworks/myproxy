@@ -191,10 +191,7 @@ func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 		logging.Printf("ERROR", "%s: SessionID:%d Could not create request dump: %v\n", logging.GetFunctionName(), ctx.SessionNo, err)
 		return
 	}
-	dst := ctx.AccessLog.DestinationIP
-	if dst == "" {
-		dst = ctx.AccessLog.ProxyIP
-	}
+	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
 	err = protocol.WriteWireshark(ctx.SessionNo, src, dst, requestDump)
 	if err != nil {
@@ -223,10 +220,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
 		return
 	}
-	dst := ctx.AccessLog.DestinationIP
-	if dst == "" {
-		dst = ctx.AccessLog.ProxyIP
-	}
+	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
 	err = protocol.WriteWireshark(ctx.SessionNo, dst, src, responseDump)
 	if err != nil {
