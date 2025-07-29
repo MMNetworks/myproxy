@@ -193,7 +193,7 @@ func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	}
 	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, requestDump)
+	err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
 	if err != nil {
 		logging.Printf("ERROR", "OnRequest: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 	}
@@ -222,7 +222,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	}
 	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(true, ctx.SessionNo, dst, src, responseDump)
+	err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, responseDump)
 	if err != nil {
 		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 	}
