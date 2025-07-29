@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"myproxy/logging"
+	"myproxy/protocol"
 	"myproxy/readconfig"
 	"net"
 	"net/http"
@@ -197,6 +198,8 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	// Ensure cleanup is performed when the function exits
 	defer func() {
+		logging.Printf("DEBUG", "ServeHTTP: cleanup Wireshark SessionID:%d maps\n", cprx.SessionNo)
+		protocol.CleanupWireshark(cprx.SessionNo)
 		logging.Printf("DEBUG", "ServeHTTP: cleanup cprx SessionID:%d\n", cprx.SessionNo)
 		cprx.Rt = nil
 		cprx.Dial = nil
