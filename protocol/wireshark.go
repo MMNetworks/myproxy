@@ -27,7 +27,17 @@ var tcpAcknowledge map[int64]uint32
 var tcpClientRand map[int64]uint32
 var tcpServerRand map[int64]uint32
 var tcpLength map[int64]uint32
-var tcpRequest map[int64]bool
+var wasRequest map[int64]bool
+
+func CleanupWireshark(sessionNo int64) {
+	// Cleanup Wiresharl map entries
+	delete(tcpSequence, sessionNo)
+	delete(tcpAcknowledge, sessionNo)
+	delete(tcpClientRand, sessionNo)
+	delete(tcpServerRand, sessionNo)
+	delete(tcpLength, sessionNo)
+	delete(wasRequest, sessionNo)
+}
 
 // Listen on given IP & Port
 func ListenWireshark(listen string) error {
@@ -46,7 +56,7 @@ func ListenWireshark(listen string) error {
 	tcpClientRand = make(map[int64]uint32)
 	tcpServerRand = make(map[int64]uint32)
 	tcpLength = make(map[int64]uint32)
-	tcpRequest = make(map[int64]bool)
+	wasRequest = make(map[int64]bool)
 	rand.Seed(time.Now().UnixNano())
 	go acceptWireshark(listener)
 
@@ -133,7 +143,7 @@ func acceptWireshark(listener net.Listener) {
 
 		logging.Printf("INFO", "AcceptWireshark: SessionID:%d Accepted connection from %s\n", 0, remoteAddr)
 
-		// Checkin background if  wireshark connection is alive
+		// Check in background if  wireshark connection is alive
 		go func(c net.Conn) {
 			buf := make([]byte, 1)
 			for {
@@ -163,7 +173,7 @@ func acceptWireshark(listener net.Listener) {
 	}
 }
 
-func WriteWireshark(response bool, sessionNo int64, src string, dst string, data []byte) error {
+func WriteWireshark(isRequest bool, sessionNo int64, src string, dst string, data []byte) error {
 	var err error
 	var tcpSeq uint32
 	var tcpAck uint32
@@ -200,11 +210,11 @@ func WriteWireshark(response bool, sessionNo int64, src string, dst string, data
 	if tcpSequence[sessionNo] == 0 {
 		tcpClientRand[sessionNo] = rand.Uint32() & 0xFFFFFF // Avoid overflow by never starting to high
 		tcpServerRand[sessionNo] = rand.Uint32() & 0xFFFFFF
-		tcpRequest[sessionNo] = true
+		wasRequest[sessionNo] = true
 		tcpLength[sessionNo] = 0
 		tcpSequence[sessionNo] = 1
 		tcpAcknowledge[sessionNo] = 1
-		err := writeSynAck(response, sessionNo, srcIP, dstIP, srcPort, dstPort)
+		err := writeSynAck(sessionNo, srcIP, dstIP, srcPort, dstPort)
 		if err != nil {
 			logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Cannot write SYN/SYN-ACK/ACK %v\n", sessionNo, err)
 		}
@@ -237,21 +247,9 @@ func WriteWireshark(response bool, sessionNo int64, src string, dst string, data
 	// Loop from start to end, stepping by 1460
 	for i := start; i < end; i += step {
 
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d request/response:%t/%t\n", sessionNo, tcpRequest[sessionNo], response)
-		if response {
-			if tcpRequest[sessionNo] { // Was previous packet a client request ?
-				tcpSeq = tcpAcknowledge[sessionNo]
-				tcpAcknowledge[sessionNo] = tcpSequence[sessionNo] + tcpLength[sessionNo]
-				tcpSequence[sessionNo] = tcpSeq
-			} else {
-				tcpSequence[sessionNo] = tcpSequence[sessionNo] + tcpLength[sessionNo]
-			}
-			tcpSeq = tcpServerRand[sessionNo] + tcpSequence[sessionNo]
-			tcpAck = tcpClientRand[sessionNo] + tcpAcknowledge[sessionNo]
-			tcpLength[sessionNo] = uint32(len(data[i:min(len(data), i+step)]))
-			tcpRequest[sessionNo] = false // This is a server response
-		} else {
-			if tcpRequest[sessionNo] { // Was previous packet a client request ?
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d wasRequest/isRequest: %t/%t\n", sessionNo, wasRequest[sessionNo], isRequest)
+		if isRequest {
+			if wasRequest[sessionNo] { // Was previous packet a client request ?
 				tcpSequence[sessionNo] = tcpSequence[sessionNo] + tcpLength[sessionNo]
 			} else {
 				tcpSeq = tcpAcknowledge[sessionNo]
@@ -261,10 +259,21 @@ func WriteWireshark(response bool, sessionNo int64, src string, dst string, data
 			tcpSeq = tcpClientRand[sessionNo] + tcpSequence[sessionNo]
 			tcpAck = tcpServerRand[sessionNo] + tcpAcknowledge[sessionNo]
 			tcpLength[sessionNo] = uint32(len(data[i:min(len(data), i+step)]))
-			tcpRequest[sessionNo] = true // This is a client request
-
+			wasRequest[sessionNo] = true // This is a client request
+		} else {
+			if wasRequest[sessionNo] { // Was previous packet a client request ?
+				tcpSeq = tcpAcknowledge[sessionNo]
+				tcpAcknowledge[sessionNo] = tcpSequence[sessionNo] + tcpLength[sessionNo]
+				tcpSequence[sessionNo] = tcpSeq
+			} else {
+				tcpSequence[sessionNo] = tcpSequence[sessionNo] + tcpLength[sessionNo]
+			}
+			tcpSeq = tcpServerRand[sessionNo] + tcpSequence[sessionNo]
+			tcpAck = tcpClientRand[sessionNo] + tcpAcknowledge[sessionNo]
+			tcpLength[sessionNo] = uint32(len(data[i:min(len(data), i+step)]))
+			wasRequest[sessionNo] = false // This is a server response
 		}
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add Sequence/Acknowledge %d/%d to packet. New length %d (request/response:%t/%t)\n", sessionNo, tcpSequence[sessionNo], tcpAcknowledge[sessionNo], tcpLength[sessionNo], tcpRequest[sessionNo], response)
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add Sequence/Acknowledge %d/%d to packet. New length %d (wasRequest/isRequest: %t/%t)\n", sessionNo, tcpSequence[sessionNo], tcpAcknowledge[sessionNo], tcpLength[sessionNo], wasRequest[sessionNo], isRequest)
 
 		// Create TCP layer
 		tcp := layers.TCP{
@@ -322,7 +331,7 @@ func WriteWireshark(response bool, sessionNo int64, src string, dst string, data
 
 }
 
-func writeSynAck(response bool, sessionNo int64, srcIP string, dstIP string, srcPort int, dstPort int) error {
+func writeSynAck(sessionNo int64, srcIP string, dstIP string, srcPort int, dstPort int) error {
 	// Use fake MAC
 	eth := layers.Ethernet{
 		SrcMAC:       []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Source MAC
