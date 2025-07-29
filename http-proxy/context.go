@@ -282,7 +282,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(ctx.SessionNo, src, dst, requestDump)
+		err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, requestDump)
 		if err != nil {
 			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
 		}
@@ -343,7 +343,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(ctx.SessionNo, dst, src, responseDump)
+		err = protocol.WriteWireshark(true, ctx.SessionNo, dst, src, responseDump)
 		if err != nil {
 			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 		}
@@ -439,7 +439,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(ctx.SessionNo, src, dst, requestDump)
+		err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, requestDump)
 		if err != nil {
 			logging.Printf("ERROR", "doFtp: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 		}
@@ -686,7 +686,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	} else {
 		dst := ctx.AccessLog.DestinationIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(ctx.SessionNo, dst, src, responseDump)
+		err = protocol.WriteWireshark(true, ctx.SessionNo, dst, src, responseDump)
 		if err != nil {
 			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 		}
