@@ -24,6 +24,12 @@ func AnalyseFirstPacket(SessionNo int64, packet []byte) (string, string) {
 	} else {
 		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
+	name, err = analyseAsUpgradePacket(SessionNo, packet)
+	if err == nil {
+		return "Upgrade", "Protocol: " + name
+	} else {
+		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
+	}
 	name, err = analyseAsHTTPPacket(SessionNo, packet)
 	if err == nil {
 		return "HTTP", "Client: " + name
@@ -83,6 +89,30 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 		logging.Printf("DEBUG", "analyseAsSSHPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
 	return "", errors.New("Not a SSH stream")
+}
+
+// Request-Header includes Upgrade: websocket
+func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
+	initialMessage := cryptobyte.String(packet)
+	isUpgrade, _ := regexp.MatchString("\\r\\nUpgrade:.*\\r\\n", string(initialMessage))
+	if isUpgrade {
+		msgString := string(initialMessage)
+		upgradePos := strings.Index(msgString, "Upgrade: ")
+		lenUpgrade := len("Upgrade: ")
+		if upgradePos < 0 {
+			upgradePos = 0
+			lenUpgrade = 0
+		}
+		pos := strings.Index(msgString[upgradePos:], "\n")
+		if strings.Index(msgString[upgradePos:], "\r") < pos {
+			pos = strings.Index(msgString[upgradePos:], "\r")
+		}
+		return msgString[upgradePos+lenUpgrade : upgradePos+pos], nil
+	} else {
+		logging.Printf("DEBUG", "analyseAsUpgradePacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
+	}
+	return "", errors.New("Not an Upgrade")
 }
 
 // Request-Line   = Method SP Request-URI SP HTTP-Version

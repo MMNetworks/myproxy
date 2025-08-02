@@ -33,6 +33,9 @@ type Context struct {
 	// Session number of this context obtained from Proxy struct.
 	SessionNo int64
 
+	// Session number of this context obtained from Proxy struct.
+	WebsocketConnection bool
+
 	// Sub session number of processing remote connection.
 	SubSessionNo int64
 
@@ -763,6 +766,27 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	}
 	ctx.ConnectHost = host
 	logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
+
+	reqSend := r
+	if r.URL.Scheme == "https" || r.URL.Scheme == "" {
+		reqSend = new(http.Request)
+		*reqSend = *r
+		reqSend.URL = new(url.URL)
+		*reqSend.URL = *r.URL
+		reqSend.URL.Scheme = "http"
+	}
+
+	requestDump, err := httputil.DumpRequestOut(reqSend, true)
+	if err != nil {
+		logging.Printf("ERROR", "doConnect: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
+	} else {
+		dst := ctx.AccessLog.ProxyIP
+		src := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
+		if err != nil {
+			logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+		}
+	}
 	switch ctx.ConnectAction {
 	case ConnectProxy:
 		conn, err := ctx.Prx.Dial(ctx, "tcp", host)
@@ -777,11 +801,18 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.Starttime = time.Now()
 			ctx.AccessLog.BytesIN = 0
 			ctx.AccessLog.BytesOUT = 0
+			src := ctx.AccessLog.ProxyIP
+			dst := ctx.AccessLog.SourceIP
+			err := protocol.WriteWireshark(false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			if err != nil {
+				logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+			}
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		remoteConn := conn.(*net.TCPConn)
 		if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
+			hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
 			hijConn.Close()
 			remoteConn.Close()
 			if !isConnectionClosed(err) {
@@ -794,8 +825,20 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.BytesIN = 0
 				ctx.AccessLog.BytesOUT = 0
 			}
+			src := ctx.AccessLog.ProxyIP
+			dst := ctx.AccessLog.SourceIP
+			err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			if err != nil {
+				logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+			}
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
+		}
+		src := ctx.AccessLog.ProxyIP
+		dst := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		if err != nil {
+			logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
 		}
 		if ctx.AccessLog.Status == "" {
 			// Proxy Dial sets status if a proxy is used
@@ -834,6 +877,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					if err != nil {
 						panic(err)
 					}
+					dst := ctx.AccessLog.ProxyIP
+					src := ctx.AccessLog.SourceIP
+					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
+					if err != nil {
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
 					protocol, description := protocol.AnalyseFirstPacket(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
 						if protocol != "TLS" {
@@ -854,15 +903,48 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 							}
 						}
 					}
+					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
+						logging.Printf("INFO", "doConnect: SessionID:%d Client requests websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
+						ctx.WebsocketConnection = true
+					} else {
+						ctx.WebsocketConnection = false
+					}
 				}
 				FirstPacket = false
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
 			}
-			n, err := io.Copy(remoteConn, hijConn)
-			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + n
-			if err != nil {
-				panic(err)
+			if ctx.WebsocketConnection {
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d\n", ctx.SessionNo, 1)
 			}
+
+			hijConn.SetReadDeadline(time.Now().Add(1 * time.Minute))
+			for {
+				n, err := hijConn.Read(buf)
+				if err != nil && err != io.EOF {
+					panic(err)
+				}
+				if n != 0 {
+					_, err = remoteConn.Write(buf[:n])
+					if err != nil {
+						panic(err)
+					}
+					dst := ctx.AccessLog.ProxyIP
+					src := ctx.AccessLog.SourceIP
+					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
+					if err != nil {
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
+				}
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
+				//if !ctx.WebsocketConnection {
+				//	break
+				//}
+			}
+			// Change to above for Wireshark
+			// n, err := io.Copy(remoteConn, hijConn)
+			// if err != nil {
+			//	panic(err)
+			// }
 			remoteConn.CloseWrite()
 			if c, ok := hijConn.(*net.TCPConn); ok {
 				c.CloseRead()
@@ -878,6 +960,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				}
 				hijConn.Close()
 				remoteConn.Close()
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					ctx.doError("Connect", ErrResponseWrite, err)
 					ctx.AccessLog.Status = "500 " + err.Error()
@@ -896,6 +979,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					_, err = hijConn.Write(buf[:n])
 					if err != nil {
 						panic(err)
+					}
+					src := ctx.AccessLog.ProxyIP
+					dst := ctx.AccessLog.SourceIP
+					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
+					if err != nil {
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
 					}
 					protocol, description := protocol.AnalyseFirstPacketResponse(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
@@ -931,21 +1020,55 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 							}
 						}
 					}
+					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
+						logging.Printf("INFO", "doConnect: SessionID:%d Server accepted websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
+						ctx.WebsocketConnection = true
+					} else {
+						ctx.WebsocketConnection = false
+					}
 				}
 
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 			}
-			n, err := io.Copy(hijConn, remoteConn)
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + n
-			if err != nil {
-				panic(err)
+			if ctx.WebsocketConnection {
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d\n", ctx.SessionNo, 1)
 			}
+			remoteConn.SetReadDeadline(time.Now().Add(1 * time.Minute))
+			for {
+				n, err := remoteConn.Read(buf)
+				if err != nil && err != io.EOF {
+					panic(err)
+				}
+				if n != 0 {
+					_, err = hijConn.Write(buf[:n])
+					if err != nil {
+						panic(err)
+					}
+					src := ctx.AccessLog.ProxyIP
+					dst := ctx.AccessLog.SourceIP
+					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
+					if err != nil {
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
+				}
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+				//if !ctx.WebsocketConnection {
+				//	break
+				//}
+			}
+			// Change to above for Wireshark
+			// n, err := io.Copy(hijConn, remoteConn)
+			// if err != nil {
+			//	panic(err)
+			// }
 			remoteConn.CloseRead()
 			if c, ok := hijConn.(*net.TCPConn); ok {
 				c.CloseWrite()
 			}
 		}()
 		wg.Wait()
+		logging.Printf("INFO", "doConnect: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.WebsocketConnection)
+		ctx.WebsocketConnection = false
 		hijConn.Close()
 		remoteConn.Close()
 	case ConnectMitm:

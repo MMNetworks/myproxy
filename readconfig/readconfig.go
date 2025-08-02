@@ -330,11 +330,12 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	for i, v := range configOut.MITM.IncExc {
 		// IncExc string format (!|)src,(client|proxy);regex
 		isEmpty, _ := regexp.MatchString("^[ ]*$", v)
-		isTriple, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
+		hasThreeEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
+		hasFourEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;[^;]*;.*", v)
 		if isEmpty {
 			continue
 		}
-		if !isTriple {
+		if !hasThreeEntries {
 			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s\n", i+1, v)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
@@ -353,6 +354,19 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if err != nil {
 			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
 			return nil, errors.New("Invalid Include/Exclude line")
+		}
+		if hasFourEntries {
+			// Parse Include/Exclude line
+			rpos := strings.LastIndex(v, ";")
+			rootCAStr := v[rpos+1:]
+			rootCAFilepath, err := filepath.Abs(rootCAStr)
+			if err != nil {
+				return nil, err
+			}
+			_, err = os.Stat(rootCAFilepath)
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
 		}
 	}
 	if configOut.Listen.IP == "" {
