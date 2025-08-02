@@ -219,7 +219,7 @@ func WriteWireshark(isRequest bool, sessionNo int64, src string, dst string, dat
 			logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Cannot write SYN/SYN-ACK/ACK %v\n", sessionNo, err)
 		}
 	}
-	logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add client/server randon number %d/%d \n", sessionNo, tcpClientRand[sessionNo], tcpServerRand[sessionNo])
+	logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add client/server random number %d/%d \n", sessionNo, tcpClientRand[sessionNo], tcpServerRand[sessionNo])
 
 	// Use fake MAC
 	eth := layers.Ethernet{

@@ -2,6 +2,8 @@ package service
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	// "github.com/yassinebenaid/godump"
@@ -69,13 +72,62 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	var matchForw bool = false
 	var checkClient bool = true
 	var checkProxy bool = true
+	var incExcRex string
+	var rootCA string = ""
 
 	// Parse Include/Exclude line
 	spos := strings.Index(incExc, ";")
 	cidrStr := incExc[:spos]
 	spos2 := strings.Index(incExc[spos+1:], ";")
 	clientOrProxyStr := incExc[spos+1 : spos+spos2+1]
-	incExcRex := incExc[spos+spos2+2:]
+	spos3 := strings.Index(incExc[spos+spos2+2:], ";")
+	if spos3 >= 0 {
+		incExcRex = incExc[spos+spos2+2 : spos+spos2+spos3+2]
+		rootCA = incExc[spos+spos2+spos3+3:]
+
+		rootCAFilepath, err := filepath.Abs(rootCA)
+		if err != nil {
+			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Can not read CA bundle: err: %v\n", ctx.SessionNo, err)
+			return 0
+		}
+
+		caCert, err := os.ReadFile(rootCAFilepath)
+		if err != nil {
+			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Can not read CA bundle: err: %v\n", ctx.SessionNo, err)
+			return 0
+		}
+
+		// Create a new CertPool
+		caCertPool := x509.NewCertPool()
+		if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
+			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to load custom CA bundle: err: %v\n", ctx.SessionNo, err)
+			return 0
+		}
+
+		systemPool, err := x509.SystemCertPool()
+		if err != nil {
+			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to load system CA bundle: err: %v\n", ctx.SessionNo, err)
+			return 0
+		}
+
+		// Create a copy (shallow copy is sufficient for most use cases)
+		customPool := x509.NewCertPool()
+		for _, cert := range systemPool.Subjects() {
+			customPool.AppendCertsFromPEM(cert)
+		}
+		// Append extra CAs
+		for _, cert := range caCertPool.Subjects() {
+			customPool.AppendCertsFromPEM(cert)
+		}
+
+		// Replace the TLSClientConfig
+		transportRt := ctx.Prx.Rt.(*http.Transport)
+		transportRt.TLSClientConfig = &tls.Config{
+			RootCAs: customPool,
+		}
+	} else {
+		incExcRex = incExc[spos+spos2+2:]
+	}
 
 	// Match URL against regex
 	matchURI, err := regexp.MatchString(incExcRex, uri)
@@ -151,7 +203,7 @@ func OnConnect(ctx *httpproxy.Context, host string) (
 			breakTLS = true
 		}
 		for _, v := range readconfig.Config.MITM.IncExc {
-			// IncExc string format (!|)src,(client|proxy);regex
+			// IncExc string format (!|)src,(client|proxy);regex,rootCA
 			logging.Printf("DEBUG", "OnConnect: SessionID:%d IncExc: %s\n", ctx.SessionNo, v)
 			isEmpty, _ := regexp.MatchString("^[ ]*$", v)
 			if isEmpty {
