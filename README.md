@@ -163,11 +163,12 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>needs either a string with key and certificate or file names pointing to a key and certficate</li>
 <li>The include/exclude list can be used to bypass TLS break </li>
 <ul>
-<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;
+<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;;&lt;selfsignedrootCA;&gt;
 <ul>
 <li>        source IP or subnet to include for TLS break or exclude if prefixed with !</li>
 <li>        the second value determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
 <li>        the third value is a regex to match the URL against.</li>
+<li>        the last value is a location of a selfsigned rootCA file. When MITM is enabled the proxy needs to verify the server cert instead of the client. This helps to limit selfsigned certificate checks</li>
 <li>The include/exclude file will be appended to the incexc list</li> 
 </ul>
 </ul>
@@ -216,7 +217,7 @@ mitm:
   certfile: "cert.pem"
   incexcfile: "incexcfile.txt"
   incexc: 
-    - "!100.10.10.0/24;client;.*
+    - "!100.10.10.0/24;client;.;selfsignedCA*
     - "0.0.0.0/0;client;.*
 pac:
   type: "FILE"
