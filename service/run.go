@@ -91,33 +91,22 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 			return 0
 		}
 
-		caCert, err := os.ReadFile(rootCAFilepath)
+		caCerts, err := os.ReadFile(rootCAFilepath)
 		if err != nil {
 			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Can not read CA bundle: err: %v\n", ctx.SessionNo, err)
 			return 0
 		}
 
-		// Create a new CertPool
-		caCertPool := x509.NewCertPool()
-		if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
-			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to load custom CA bundle: err: %v\n", ctx.SessionNo, err)
-			return 0
-		}
-
-		systemPool, err := x509.SystemCertPool()
+		customPool, err := x509.SystemCertPool()
 		if err != nil {
 			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to load system CA bundle: err: %v\n", ctx.SessionNo, err)
 			return 0
 		}
 
-		// Create a copy (shallow copy is sufficient for most use cases)
-		customPool := x509.NewCertPool()
-		for _, cert := range systemPool.Subjects() {
-			customPool.AppendCertsFromPEM(cert)
-		}
-		// Append extra CAs
-		for _, cert := range caCertPool.Subjects() {
-			customPool.AppendCertsFromPEM(cert)
+		ok := customPool.AppendCertsFromPEM(caCerts)
+		if !ok {
+			logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to append custom CA bundle\n", ctx.SessionNo)
+			return 0
 		}
 
 		// Replace the TLSClientConfig
@@ -125,6 +114,9 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 		transportRt.TLSClientConfig = &tls.Config{
 			RootCAs: customPool,
 		}
+
+		ctx.Prx.Rt = transportRt
+
 	} else {
 		incExcRex = incExc[spos+spos2+2:]
 	}
