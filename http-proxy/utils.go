@@ -77,7 +77,7 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 	h.Del("Connection")
 	clientConnection := ""
 	if resp.Request != nil {
-		clientConnection = resp.Request.Header.Get("Connection")
+		clientConnection = strings.ToLower(resp.Request.Header.Get("Connection"))
 	}
 	switch clientConnection {
 	case "close":
@@ -88,6 +88,8 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 		} else {
 			h.Set("Connection", "close")
 		}
+	case "upgraade":
+		h.Set("Connection", "Upgrade")
 	default:
 		if te == "chunked" {
 			h.Set("Connection", "close")

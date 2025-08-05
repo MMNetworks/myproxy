@@ -34,7 +34,10 @@ type Context struct {
 	SessionNo int64
 
 	// Session number of this context obtained from Proxy struct.
-	WebsocketConnection bool
+	Websocket bool
+
+	// Session number of this context obtained from Proxy struct.
+	WebsocketConn net.Conn
 
 	// Sub session number of processing remote connection.
 	SubSessionNo int64
@@ -905,15 +908,15 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
 						logging.Printf("INFO", "doConnect: SessionID:%d Client requests websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
-						ctx.WebsocketConnection = true
+						ctx.Websocket = true
 					} else {
-						ctx.WebsocketConnection = false
+						ctx.Websocket = false
 					}
 				}
 				FirstPacket = false
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
 			}
-			if ctx.WebsocketConnection {
+			if ctx.Websocket {
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d\n", ctx.SessionNo, 1)
 			}
 
@@ -936,7 +939,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 				}
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
-				//if !ctx.WebsocketConnection {
+				//if !ctx.Websocket {
 				//	break
 				//}
 			}
@@ -1022,15 +1025,15 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
 						logging.Printf("INFO", "doConnect: SessionID:%d Server accepted websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
-						ctx.WebsocketConnection = true
+						ctx.Websocket = true
 					} else {
-						ctx.WebsocketConnection = false
+						ctx.Websocket = false
 					}
 				}
 
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 			}
-			if ctx.WebsocketConnection {
+			if ctx.Websocket {
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, 60)
 			}
 			remoteConn.SetReadDeadline(time.Now().Add(60 * time.Second))
@@ -1052,7 +1055,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 				}
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
-				//if !ctx.WebsocketConnection {
+				//if !ctx.Websocket {
 				//	break
 				//}
 			}
@@ -1067,8 +1070,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			}
 		}()
 		wg.Wait()
-		logging.Printf("INFO", "doConnect: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.WebsocketConnection)
-		ctx.WebsocketConnection = false
+		logging.Printf("INFO", "doConnect: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.Websocket)
+		ctx.Websocket = false
 		hijConn.Close()
 		remoteConn.Close()
 		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
@@ -1132,6 +1135,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
+		ctx.hijTLSConn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
 		b = false
 	default:
@@ -1149,26 +1153,72 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 
 func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
-	req, err := http.ReadRequest(ctx.hijTLSReader)
-	if err != nil {
-		if !isConnectionClosed(err) {
-			ctx.doError("Request", ErrRequestRead, err)
+
+	if ctx.Websocket {
+		// Not anymore HTTP Request / Response
+		// It is bidirectional i.e. need go funtions
+		for {
+			var n int
+			var resp []byte
+			logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection\n", ctx.SessionNo)
+
+			req, err := io.ReadAll(ctx.hijTLSReader)
+			if err != nil {
+				if !isConnectionClosed(err) {
+					ctx.doError("Websocket Request", ErrRequestRead, err)
+				}
+				logging.Printf("ERROR", "doMitm: SessionID:%d Could not read request: %v\n", ctx.SessionNo, err)
+				return
+			}
+			writer := bufio.NewWriter(ctx.WebsocketConn)
+			n, err = writer.Write(req)
+			if err != nil {
+				if !isConnectionClosed(err) {
+					ctx.doError("Websocket Request", ErrRequestRead, err)
+				}
+				logging.Printf("ERROR", "doMitm: SessionID:%d Could not send (%d of %d) request: %v\n", ctx.SessionNo, n, len(req), err)
+				return
+			}
+			err = writer.Flush()
+			if err != nil {
+				logging.Printf("ERROR", "doMitm: SessionID:%d Could not flush request: %v\n", ctx.SessionNo, err)
+				return
+			}
+			reader := bufio.NewReader(ctx.WebsocketConn)
+			resp, err = io.ReadAll(reader)
+			if err != nil {
+				logging.Printf("ERROR", "doMitm: SessionID:%d Could not read response: %v\n", ctx.SessionNo, err)
+				return
+			}
+			hijTLSWriter := bufio.NewWriter(ctx.hijTLSConn)
+			n, err = hijTLSWriter.Write(resp)
+			if err != nil {
+				logging.Printf("ERROR", "doMitm: SessionID:%d Could not send (%d of %d) response: %v\n", ctx.SessionNo, n, len(resp), err)
+				return
+			}
 		}
-		return
+	} else {
+		req, err := http.ReadRequest(ctx.hijTLSReader)
+		if err != nil {
+			if !isConnectionClosed(err) {
+				ctx.doError("Request", ErrRequestRead, err)
+			}
+			return
+		}
+		req.RemoteAddr = ctx.ConnectReq.RemoteAddr
+		if req.URL.IsAbs() {
+			ctx.doError("Request", ErrAbsURLAfterCONNECT, nil)
+			return
+		}
+		req.URL.Scheme = "https"
+		req.URL.Host = ctx.ConnectHost
+		w = NewConnResponseWriter(ctx.hijTLSConn)
+		r = req
+		ctx.AccessLog.Method = r.Method
+		ctx.AccessLog.Scheme = r.URL.Scheme
+		ctx.AccessLog.Url = r.URL.Redacted()
+		ctx.AccessLog.Version = r.Proto
 	}
-	req.RemoteAddr = ctx.ConnectReq.RemoteAddr
-	if req.URL.IsAbs() {
-		ctx.doError("Request", ErrAbsURLAfterCONNECT, nil)
-		return
-	}
-	req.URL.Scheme = "https"
-	req.URL.Host = ctx.ConnectHost
-	w = NewConnResponseWriter(ctx.hijTLSConn)
-	r = req
-	ctx.AccessLog.Method = r.Method
-	ctx.AccessLog.Scheme = r.URL.Scheme
-	ctx.AccessLog.Url = r.URL.Redacted()
-	ctx.AccessLog.Version = r.Proto
 	return
 }
 
@@ -1235,30 +1285,65 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	if r.Body != nil {
 		defer r.Body.Close()
 	}
+	var bodySize int64
+	var err error
+	var resp *http.Response
 
-	resp, err := ctx.Prx.Rt.RoundTrip(r)
-	bodySize := r.ContentLength
-
-	headerSize := 0
+	upgrade := r.Header.Get("Upgrade")
+	if upgrade == "websocket" {
+		// Need to capture Upgrades as Rountripper can not deal with the 101 Upgrade response
+		// The response does not have a body and Roundtripper waits for a body until it times out
+		var host string
+		if r.Host == "" {
+			host = r.URL.Host
+		} else {
+			host = r.Host
+		}
+		logging.Printf("DEBUG", "doResponse: SessionID:%d connection upgrade: %s\n", ctx.SessionNo, upgrade)
+		ctx.WebsocketConn, err = ctx.Prx.Dial(ctx, "tcp", host)
+		if err != nil {
+			logging.Printf("ERROR", "doResponse: SessionID:%d Connection to host %s failed: %v\n", ctx.SessionNo, host, err)
+			return err
+		} else {
+			logging.Printf("DEBUG", "doResponse: SessionID:%d Connection to host %s succeded\n", ctx.SessionNo, host)
+			err1 := r.Write(ctx.WebsocketConn)
+			if err1 != nil {
+				logging.Printf("ERROR", "doResponse: SessionID:%d Could not send request to host: %v\n", ctx.SessionNo, host, err)
+			}
+			reader := bufio.NewReader(ctx.WebsocketConn)
+			resp, err = http.ReadResponse(reader, r)
+			if err != nil {
+				logging.Printf("ERROR", "doResponse: SessionID:%d Could not read response from  host: %v\n", ctx.SessionNo, err)
+				return err
+			}
+		}
+		ctx.Websocket = true
+		ctx.Prx.MitmChunked = false
+		bodySize = 0
+	} else {
+		resp, err = ctx.Prx.Rt.RoundTrip(r)
+		bodySize = r.ContentLength
+	}
+	headerSize := int64(0)
 	for name, values := range r.Header {
 		for _, value := range values {
-			headerSize += len(name) + len(value) + len(": ") + len("\r\n")
+			headerSize += int64(len(name) + len(value) + len(": ") + len("\r\n"))
 		}
 	}
 	// it seems host header information is moved to different entries in structure
 	if r.Host == "" {
-		headerSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
+		headerSize += int64(len("Host: ") + len(r.URL.Host) + len("\r\n"))
 	} else {
-		headerSize += len("Host: ") + len(r.Host) + len("\r\n")
+		headerSize += int64(len("Host: ") + len(r.Host) + len("\r\n"))
 	}
 	// Added by roundtripper in transport request as extra header to server.
-	headerSize += len("Accept-Encoding: gzip\r\n")
+	headerSize += int64(len("Accept-Encoding: gzip\r\n"))
 	// Adding the size of the initial request line and the final empty line
-	requestLineSize := len(r.Method) + 1 + len(r.URL.String()) + len(" HTTP/1.1\r\n")
-	finalEmptyLineSize := len("\r\n")
+	requestLineSize := int64(len(r.Method) + 1 + len(r.URL.String()) + len(" HTTP/1.1\r\n"))
+	finalEmptyLineSize := int64(len("\r\n"))
 	// Calculate the total request size
-	totalSize := requestLineSize + headerSize + int(bodySize) + finalEmptyLineSize
-	ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(totalSize)
+	totalSize := requestLineSize + headerSize + bodySize + finalEmptyLineSize
+	ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + totalSize
 	if err != nil {
 		if err != context.Canceled && !isConnectionClosed(err) {
 			ctx.doError("Response", ErrRoundTrip, err)
