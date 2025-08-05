@@ -241,14 +241,14 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.AccessLog.Duration = time.Duration(0)
 	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if !ok {
-		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
+		cprx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
 		return
 	}
 
 	// Get the local address from the connection
 	localAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
+		cprx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
 		return
 	}
 	ctx.AccessLog.ProxyIP = localAddr.String()
@@ -274,7 +274,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var cyclic = false
 		switch ctx.ConnectAction {
 		case ConnectMitm:
-			if prx.MitmChunked {
+			if cprx.MitmChunked {
 				cyclic = true
 			}
 			w2, r2 = ctx.doMitm()

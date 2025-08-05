@@ -15,7 +15,6 @@ import (
 	"myproxy/upstream/authenticate"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -229,18 +228,6 @@ func OnRequest(ctx *httpproxy.Context, req *http.Request) (
 	resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// var err error
-
-	requestDump, err := httputil.DumpRequestOut(req, true)
-	if err != nil {
-		logging.Printf("ERROR", "%s: SessionID:%d Could not create request dump: %v\n", logging.GetFunctionName(), ctx.SessionNo, err)
-		return
-	}
-	dst := ctx.AccessLog.ProxyIP
-	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
-	if err != nil {
-		logging.Printf("ERROR", "OnRequest: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
-	}
 	return
 }
 
@@ -258,18 +245,6 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	}
 	// Add header "Via: go-httpproxy".
 	resp.Header.Add("Via", "myproxy")
-
-	responseDump, err := httputil.DumpResponse(resp, true)
-	if err != nil {
-		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
-		return
-	}
-	dst := ctx.AccessLog.ProxyIP
-	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, responseDump)
-	if err != nil {
-		logging.Printf("ERROR", "OnResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
-	}
 }
 
 func runProxy(args []string) {
