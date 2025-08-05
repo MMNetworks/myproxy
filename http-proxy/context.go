@@ -1031,9 +1031,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 			}
 			if ctx.WebsocketConnection {
-				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d\n", ctx.SessionNo, 1)
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, 60)
 			}
-			remoteConn.SetReadDeadline(time.Now().Add(1 * time.Minute))
+			remoteConn.SetReadDeadline(time.Now().Add(60 * time.Second))
 			for {
 				n, err := remoteConn.Read(buf)
 				if err != nil && err != io.EOF {
@@ -1071,6 +1071,13 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.WebsocketConnection = false
 		hijConn.Close()
 		remoteConn.Close()
+		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 	case ConnectMitm:
 		tlsConfig := &tls.Config{}
 		cert := ctx.Prx.signer.SignHost(host)
@@ -1103,6 +1110,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
+		dst := ctx.AccessLog.ProxyIP
+		src := ctx.AccessLog.SourceIP
+		err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		if err != nil {
+			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		}
 		ctx.hijTLSConn = tls.Server(hijConn, tlsConfig)
 		if err := ctx.hijTLSConn.Handshake(); err != nil {
 			ctx.hijTLSConn.Close()
@@ -1123,14 +1136,14 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		b = false
 	default:
 		hijConn.Close()
+		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
 	}
-	logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
-	ctx.AccessLog.Endtime = time.Now()
-	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-	logging.AccesslogWrite(ctx.AccessLog)
-	ctx.AccessLog.Starttime = time.Now()
-	ctx.AccessLog.BytesIN = 0
-	ctx.AccessLog.BytesOUT = 0
 	return
 }
 
@@ -1179,6 +1192,19 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 
 	r.RequestURI = r.URL.String()
 	logging.Printf("DEBUG", "doRequest: SessionID:%d New Connection to %s\n", ctx.SessionNo, r.URL.Host)
+
+	requestDump, err := httputil.DumpRequestOut(r, true)
+	if err != nil {
+		logging.Printf("ERROR", "doRequest: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
+		return true, err
+	}
+	dst := ctx.AccessLog.ProxyIP
+	src := ctx.AccessLog.SourceIP
+	err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
+	if err != nil {
+		logging.Printf("ERROR", "doRequest: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+	}
+
 	if ctx.Prx.OnRequest == nil {
 		logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		return false, nil
@@ -1251,6 +1277,19 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		ctx.AccessLog.BytesOUT = 0
 		return err
 	}
+
+	responseDump, err := httputil.DumpResponse(resp, true)
+	if err != nil {
+		logging.Printf("ERROR", "doResponse: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
+		return err
+	}
+	dst := ctx.AccessLog.ProxyIP
+	src := ctx.AccessLog.SourceIP
+	err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, responseDump)
+	if err != nil {
+		logging.Printf("ERROR", "doResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+	}
+
 	if ctx.Prx.OnResponse != nil {
 		ctx.onResponse(r, resp)
 	}
