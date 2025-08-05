@@ -280,7 +280,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 			},
 		}
 		// ctx.Prx.Dial = httpproxy.NetDial
-		ctx.Prx.Dial = proxydial.Dial
+		ctx.Prx.Dial = proxydial.PrxDial
 		ctx.UpstreamProxy = ""
 	}
 	return nil
