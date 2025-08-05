@@ -36,6 +36,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 	var conn net.Conn
 
 	proxy := ctx.UpstreamProxy
+	tlsMitm := ctx.ConnectAction == httpproxy.ConnectMitm
 
 	logging.Printf("DEBUG", "PrxDial: SessionID:%d %s %s %s\n", ctx.SessionNo, network, address, proxy)
 	ipos := strings.Index(address, ":")
@@ -79,6 +80,27 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		}
 		fmt.Fprintf(conn, "\r\n")
 
+		logging.Printf("DEBUG", "PrxDial: SessionID:%d TLSMitm %t\n", ctx.SessionNo, tlsMitm)
+		if tlsMitm {
+			// Step 1: Dial TLS manually
+			serverName, _, err := net.SplitHostPort(ctx.ConnectReq.Host)
+			if err != nil {
+				// If there's no port, r.Host is just the hostname
+				serverName = ctx.ConnectReq.Host
+			}
+			transportRt := ctx.Prx.Rt.(*http.Transport)
+			transportRt.TLSClientConfig.ServerName = serverName
+
+			// Wrap the existing net.Conn with TLS
+			tlsConn := tls.Client(conn, transportRt.TLSClientConfig)
+
+			// Perform the TLS handshake
+			err = tlsConn.Handshake()
+			if err != nil {
+				logging.Printf("ERROR", "PrxDial: SessionID:%d Error establishing tLS over proxy: %v\n", ctx.SessionNo, err)
+				return nil, err
+			}
+		}
 		resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 		if err != nil {
 			logging.Printf("ERROR", "PrxDial: SessionID:%d Error reading response from proxy: %v\n", ctx.SessionNo, err)
@@ -115,7 +137,21 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			Timeout:   5 * time.Second, // Set the timeout duration
 			KeepAlive: 5 * time.Second,
 		}
-		conn, err = newDial.Dial("tcp", address)
+		logging.Printf("DEBUG", "PrxDial: SessionID:%d TLSMitm %t\n", ctx.SessionNo, tlsMitm)
+		if tlsMitm {
+			// Step 1: Dial TLS manually
+			serverName, _, err := net.SplitHostPort(ctx.ConnectReq.Host)
+			if err != nil {
+				// If there's no port, r.Host is just the hostname
+				serverName = ctx.ConnectReq.Host
+			}
+			transportRt := ctx.Prx.Rt.(*http.Transport)
+			transportRt.TLSClientConfig.ServerName = serverName
+
+			conn, err = tls.Dial("tcp", address, transportRt.TLSClientConfig)
+		} else {
+			conn, err = newDial.Dial("tcp", address)
+		}
 		if err != nil {
 			logging.Printf("ERROR", "PrxDial: SessionID:%d Error connecting to adress: %s error: %v\n", ctx.SessionNo, address, err)
 			ctx.AccessLog.Status = "500 internal error"
