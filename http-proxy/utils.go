@@ -88,7 +88,7 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 		} else {
 			h.Set("Connection", "close")
 		}
-	case "upgraade":
+	case "upgrade":
 		h.Set("Connection", "Upgrade")
 	default:
 		if te == "chunked" {
