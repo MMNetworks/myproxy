@@ -4,7 +4,7 @@ import (
 	"myproxy/logging"
 )
 
-const Version = "1.8.3"
+const Version = "1.9.0"
 
 func init() {
 	logging.Printf("INFO", "main: Starting version: %s\n", Version)
