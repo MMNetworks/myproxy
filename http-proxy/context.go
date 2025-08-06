@@ -917,10 +917,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
 			}
 			if ctx.Websocket {
-				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d\n", ctx.SessionNo, 1)
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, readconfig.Config.WebSocket.Timeout)
 			}
 
-			hijConn.SetReadDeadline(time.Now().Add(1 * time.Minute))
+			hijConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 			for {
 				n, err := hijConn.Read(buf)
 				if err != nil && err != io.EOF {
@@ -943,11 +943,6 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				//	break
 				//}
 			}
-			// Change to above for Wireshark
-			// n, err := io.Copy(remoteConn, hijConn)
-			// if err != nil {
-			//	panic(err)
-			// }
 			remoteConn.CloseWrite()
 			if c, ok := hijConn.(*net.TCPConn); ok {
 				c.CloseRead()
@@ -1034,9 +1029,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 			}
 			if ctx.Websocket {
-				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, 60)
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, readconfig.Config.WebSocket.Timeout)
 			}
-			remoteConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			remoteConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 			for {
 				n, err := remoteConn.Read(buf)
 				if err != nil && err != io.EOF {
@@ -1059,11 +1054,6 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				//	break
 				//}
 			}
-			// Change to above for Wireshark
-			// n, err := io.Copy(hijConn, remoteConn)
-			// if err != nil {
-			//	panic(err)
-			// }
 			remoteConn.CloseRead()
 			if c, ok := hijConn.(*net.TCPConn); ok {
 				c.CloseWrite()
@@ -1156,47 +1146,117 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 
 	if ctx.Websocket {
 		// Not anymore HTTP Request / Response
-		// It is bidirectional i.e. need go funtions
-		for {
-			var n int
-			var resp []byte
-			logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection\n", ctx.SessionNo)
+		hijConn := ctx.hijTLSConn
+		remoteConn := ctx.WebsocketConn
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				e := recover()
+				err, ok := e.(error)
+				if !ok {
+					return
+				}
+				hijConn.Close()
+				remoteConn.Close()
+				if !isConnectionClosed(err) {
+					ctx.doError("Connect", ErrRequestRead, err)
+					ctx.AccessLog.Status = "500 " + err.Error()
+				}
+			}()
 
-			req, err := io.ReadAll(ctx.hijTLSReader)
-			if err != nil {
-				if !isConnectionClosed(err) {
-					ctx.doError("Websocket Request", ErrRequestRead, err)
+			buf := make([]byte, 65535)
+			hijConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+			for {
+				n, err := hijConn.Read(buf)
+				if err != nil && err != io.EOF {
+					panic(err)
 				}
-				logging.Printf("ERROR", "doMitm: SessionID:%d Could not read request: %v\n", ctx.SessionNo, err)
-				return
-			}
-			writer := bufio.NewWriter(ctx.WebsocketConn)
-			n, err = writer.Write(req)
-			if err != nil {
-				if !isConnectionClosed(err) {
-					ctx.doError("Websocket Request", ErrRequestRead, err)
+				if n != 0 {
+					_, err = remoteConn.Write(buf[:n])
+					if err != nil {
+						panic(err)
+					}
+					dst := ctx.AccessLog.ProxyIP
+					src := ctx.AccessLog.SourceIP
+					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
+					if err != nil {
+						logging.Printf("ERROR", "doMitm: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
 				}
-				logging.Printf("ERROR", "doMitm: SessionID:%d Could not send (%d of %d) request: %v\n", ctx.SessionNo, n, len(req), err)
-				return
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
+				//if !ctx.Websocket {
+				//	break
+				//}
 			}
-			err = writer.Flush()
-			if err != nil {
-				logging.Printf("ERROR", "doMitm: SessionID:%d Could not flush request: %v\n", ctx.SessionNo, err)
-				return
+			remoteConn.Close()
+			hijConn.Close()
+			//if c, ok := hijConn.(*net.TCPConn); ok {
+			//	c.CloseRead()
+			//}
+		}()
+		go func() {
+			defer wg.Done()
+			defer func() {
+				e := recover()
+				err, ok := e.(error)
+				if !ok {
+					return
+				}
+				hijConn.Close()
+				remoteConn.Close()
+				logging.Printf("DEBUG", "doMitm: SessionID:%d Server connection closed\n", ctx.SessionNo)
+				if !isConnectionClosed(err) {
+					ctx.doError("Connect", ErrResponseWrite, err)
+					ctx.AccessLog.Status = "500 " + err.Error()
+				}
+			}()
+			//
+			// Analyse first response packet for protocol idenification and SNI compliance
+			//
+			buf := make([]byte, 65535)
+			remoteConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+			for {
+				n, err := remoteConn.Read(buf)
+				if err != nil && err != io.EOF {
+					panic(err)
+				}
+				if n != 0 {
+					_, err = hijConn.Write(buf[:n])
+					if err != nil {
+						panic(err)
+					}
+					src := ctx.AccessLog.ProxyIP
+					dst := ctx.AccessLog.SourceIP
+					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
+					if err != nil {
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
+				}
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+				//if !ctx.Websocket {
+				//	break
+				//}
 			}
-			reader := bufio.NewReader(ctx.WebsocketConn)
-			resp, err = io.ReadAll(reader)
-			if err != nil {
-				logging.Printf("ERROR", "doMitm: SessionID:%d Could not read response: %v\n", ctx.SessionNo, err)
-				return
-			}
-			hijTLSWriter := bufio.NewWriter(ctx.hijTLSConn)
-			n, err = hijTLSWriter.Write(resp)
-			if err != nil {
-				logging.Printf("ERROR", "doMitm: SessionID:%d Could not send (%d of %d) response: %v\n", ctx.SessionNo, n, len(resp), err)
-				return
-			}
-		}
+			remoteConn.Close()
+			hijConn.Close()
+			//if c, ok := hijConn.(*net.TCPConn); ok {
+			//	c.CloseWrite()
+			//}
+		}()
+		wg.Wait()
+		logging.Printf("INFO", "doMitm: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.Websocket)
+		hijConn.Close()
+		remoteConn.Close()
+		logging.Printf("DEBUG", "doMitm: SessionID:%d Connection closed.\n", ctx.SessionNo)
+		ctx.AccessLog.Endtime = time.Now()
+		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		logging.AccesslogWrite(ctx.AccessLog)
+		ctx.AccessLog.Starttime = time.Now()
+		ctx.AccessLog.BytesIN = 0
+		ctx.AccessLog.BytesOUT = 0
+
 	} else {
 		req, err := http.ReadRequest(ctx.hijTLSReader)
 		if err != nil {
