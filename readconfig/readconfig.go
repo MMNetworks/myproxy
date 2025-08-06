@@ -40,6 +40,10 @@ type Connection struct {
 	Timeout   int `yaml:"timeout"`
 	Keepalive int `yaml:"keepalive"`
 }
+type WebSocket struct {
+	Timeout int      `yaml:"timeout"`
+	IncExc  []string `yaml:"incexc"`
+}
 type FTP struct {
 	Username string `yaml:"username"`
 	Password string `yaml:"password"`
@@ -79,6 +83,7 @@ type Schema struct {
 	Listen     Listen     `yaml:"listen"`
 	Logging    Logging    `yaml:"logging"`
 	Connection Connection `yaml:"connection"`
+	WebSocket  WebSocket  ` yaml:"websocket"`
 	FTP        FTP        `yaml:"ftp"`
 	MITM       MITM       `yaml:"mitm"`
 	Wireshark  Wireshark  `yaml:"wireshark"`
@@ -386,6 +391,9 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 	if configOut.Connection.Keepalive == 0 {
 		configOut.Connection.Keepalive = 10
+	}
+	if configOut.WebSocket.Timeout == 0 {
+		configOut.WebSocket.Timeout = 30
 	}
 	if configOut.FTP.Username == "" {
 		configOut.FTP.Username = "anonymous"
