@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"github.com/secsy/goftp"
 	"io"
@@ -862,7 +863,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				hijConn.Close()
 				remoteConn.Close()
 				if !isConnectionClosed(err) {
-					ctx.doError("Connect", ErrRequestRead, err)
+					// ctx.doError("Connect", ErrRequestRead, err)
 					ctx.AccessLog.Status = "500 " + err.Error()
 				}
 			}()
@@ -920,10 +921,13 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, readconfig.Config.WebSocket.Timeout)
 			}
 
-			hijConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 			for {
+				hijConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 				n, err := hijConn.Read(buf)
-				if err != nil && err != io.EOF {
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
 					panic(err)
 				}
 				if n != 0 {
@@ -960,7 +964,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				remoteConn.Close()
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
-					ctx.doError("Connect", ErrResponseWrite, err)
+					//ctx.doError("Connect", ErrResponseWrite, err)
 					ctx.AccessLog.Status = "500 " + err.Error()
 				}
 			}()
@@ -1031,10 +1035,13 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			if ctx.Websocket {
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, readconfig.Config.WebSocket.Timeout)
 			}
-			remoteConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 			for {
+				remoteConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 				n, err := remoteConn.Read(buf)
-				if err != nil && err != io.EOF {
+				if err != nil {
+					if err == io.EOF {
+						break
+					}
 					panic(err)
 				}
 				if n != 0 {
@@ -1143,13 +1150,22 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 
 func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
+	const maxPayloadLength int = 16 * 65535
 
 	if ctx.Websocket {
 		// Not anymore HTTP Request / Response
 		hijConn := ctx.hijTLSConn
 		remoteConn := ctx.WebsocketConn
+		hijConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+		remoteConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+		var hijRead bool = true
+		var hijWrite bool = true
+		var remoteRead bool = true
+		var remoteWrite bool = true
+
 		var wg sync.WaitGroup
 		wg.Add(2)
+
 		go func() {
 			defer wg.Done()
 			defer func() {
@@ -1160,24 +1176,152 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				}
 				hijConn.Close()
 				remoteConn.Close()
+				logging.Printf("DEBUG", "doMitm: SessionID:%d Client connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
-					ctx.doError("Connect", ErrRequestRead, err)
+					// ctx.doError("Connect", ErrRequestRead, err)
 					ctx.AccessLog.Status = "500 " + err.Error()
 				}
 			}()
-
+			//
+			// Websocket Request
+			//
 			buf := make([]byte, 65535)
-			hijConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+			payload := make([]byte, maxPayloadLength)
+			payloadLen := 0
+			dataLen := 0
+			var fin bool
+			var opcode byte
+			var masked bool
+			var maskKey [4]byte
+			var offset int
+
 			for {
+				hijConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 				n, err := hijConn.Read(buf)
-				if err != nil && err != io.EOF {
+				if err != nil {
+					logging.Printf("DEBUG", "doMitm: SessionID:%d Client connection after read: %v\n", ctx.SessionNo, err)
+					if err == io.EOF {
+						break
+					}
 					panic(err)
 				}
 				if n != 0 {
+					remoteConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 					_, err = remoteConn.Write(buf[:n])
 					if err != nil {
 						panic(err)
 					}
+
+					if payloadLen == 0 {
+						fin = buf[0]&0x80 != 0
+						opcode = buf[0] & 0x0F
+						masked = buf[1]&0x80 != 0
+						payloadLen = int(buf[1] & 0x7F)
+						offset = 2
+
+						if payloadLen == 126 {
+							if n < offset+2 {
+								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+2\n", ctx.SessionNo, n)
+								break
+							}
+							payloadLen = int(binary.BigEndian.Uint16(buf[offset : offset+2]))
+							offset += 2
+						} else if payloadLen == 127 {
+							if n < offset+8 {
+								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+8\n", ctx.SessionNo, n)
+								break
+							}
+							payloadLen = int(binary.BigEndian.Uint64(buf[offset : offset+8]))
+							offset += 8
+						}
+
+						if payloadLen > maxPayloadLength {
+							logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too large to convert: %d\n", ctx.SessionNo, payloadLen)
+							break
+						}
+
+						if masked {
+							if n < offset+4 {
+								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+4\n", ctx.SessionNo, n)
+								break
+							}
+							copy(maskKey[:], buf[offset:offset+4])
+							offset += 4
+						}
+
+						skip := false
+						logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket Payload length: %d Masked bit: %t FIN bit: %t\n", ctx.SessionNo, payloadLen, masked, fin)
+						switch opcode {
+						case 0x1: // Text frame
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string\n", ctx.SessionNo)
+						case 0x2: // Binary frame
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket binary\n", ctx.SessionNo)
+						case 0x8: // Connection closed
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection closed\n", ctx.SessionNo)
+							skip = true
+							break
+						case 0x9: // Ping
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection ping\n", ctx.SessionNo)
+						case 0xA: // Pong
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection pong\n", ctx.SessionNo)
+							skip = true
+						default:
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket unknown type: %d\n", ctx.SessionNo, opcode)
+							skip = true
+						}
+						if !skip {
+							if n < offset+payloadLen {
+								copy(payload, buf[offset:n])
+								dataLen = n - offset
+							} else {
+
+								copy(payload, buf[offset:offset+payloadLen])
+								if masked {
+									for i := 0; i < payloadLen; i++ {
+										payload[i] ^= maskKey[i%4]
+									}
+								}
+
+								payloadLen = 0
+								dataLen = 0
+
+								switch opcode {
+								case 0x1: // Text frame
+									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
+								case 0x2: // Binary frame
+									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%v\n\n", ctx.SessionNo, payload[:payloadLen])
+									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
+								}
+							}
+						}
+					} else {
+						if n < payloadLen-dataLen {
+							copy(payload[dataLen:], buf[:n])
+							dataLen = dataLen + n
+						} else {
+							copy(payload[dataLen:], buf[:payloadLen-dataLen])
+
+							if masked {
+								for i := 0; i < payloadLen; i++ {
+									payload[i] ^= maskKey[i%4]
+								}
+							}
+
+							if n > payloadLen-dataLen {
+								logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket data contains second payload %d bytes\n", ctx.SessionNo, payloadLen-dataLen-n)
+							}
+							payloadLen = 0
+							dataLen = 0
+
+							switch opcode {
+							case 0x1: // Text frame
+								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload[:payloadLen])
+							case 0x2: // Binary frame
+								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
+							}
+						}
+					}
+
 					dst := ctx.AccessLog.ProxyIP
 					src := ctx.AccessLog.SourceIP
 					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
@@ -1190,12 +1334,18 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				//	break
 				//}
 			}
-			remoteConn.Close()
-			hijConn.Close()
-			//if c, ok := hijConn.(*net.TCPConn); ok {
-			//	c.CloseRead()
-			//}
+			remoteWrite = false
+			if !remoteRead {
+				logging.Printf("ERROR", "doMitm: SessionID:%d remote close write\n", ctx.SessionNo)
+				remoteConn.Close()
+			}
+			hijRead = false
+			if !hijWrite {
+				logging.Printf("ERROR", "doMitm: SessionID:%d hij close read\n", ctx.SessionNo)
+				hijConn.Close()
+			}
 		}()
+
 		go func() {
 			defer wg.Done()
 			defer func() {
@@ -1208,30 +1358,155 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				remoteConn.Close()
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
-					ctx.doError("Connect", ErrResponseWrite, err)
+					// ctx.doError("Connect", ErrResponseWrite, err)
 					ctx.AccessLog.Status = "500 " + err.Error()
 				}
 			}()
 			//
-			// Analyse first response packet for protocol idenification and SNI compliance
+			// Websocket Response
 			//
 			buf := make([]byte, 65535)
-			remoteConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+			payload := make([]byte, maxPayloadLength)
+			payloadLen := 0
+			dataLen := 0
+			var fin bool
+			var opcode byte
+			var masked bool
+			var maskKey [4]byte
+			var offset int
+
 			for {
+				remoteConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 				n, err := remoteConn.Read(buf)
-				if err != nil && err != io.EOF {
+				if err != nil {
+					logging.Printf("DEBUG", "doMitm: SessionID:%d Server connection after read: %v\n", ctx.SessionNo, err)
+					if err == io.EOF {
+						break
+					}
 					panic(err)
 				}
 				if n != 0 {
+					hijConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
 					_, err = hijConn.Write(buf[:n])
 					if err != nil {
 						panic(err)
 					}
+
+					if payloadLen == 0 {
+						fin = buf[0]&0x80 != 0
+						opcode = buf[0] & 0x0F
+						masked = buf[1]&0x80 != 0
+						payloadLen = int(buf[1] & 0x7F)
+						offset = 2
+
+						if payloadLen == 126 {
+							if n < offset+2 {
+								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+2\n", ctx.SessionNo, n)
+								break
+							}
+							payloadLen = int(binary.BigEndian.Uint16(buf[offset : offset+2]))
+							offset += 2
+						} else if payloadLen == 127 {
+							if n < offset+8 {
+								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+8\n", ctx.SessionNo, n)
+								break
+							}
+							payloadLen = int(binary.BigEndian.Uint64(buf[offset : offset+8]))
+							offset += 8
+						}
+
+						if payloadLen > maxPayloadLength {
+							logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too large to convert: %d\n", ctx.SessionNo, payloadLen)
+							break
+						}
+
+						if masked {
+							if n < offset+4 {
+								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+4\n", ctx.SessionNo, n)
+								break
+							}
+							copy(maskKey[:], buf[offset:offset+4])
+							offset += 4
+						}
+
+						skip := false
+						logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket Payload length: %d Masked bit: %t FIN bit: %t\n", ctx.SessionNo, payloadLen, masked, fin)
+						switch opcode {
+						case 0x1: // Text frame
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string\n", ctx.SessionNo)
+						case 0x2: // Binary frame
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket binary\n", ctx.SessionNo)
+						case 0x8: // Connection closed
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection closed\n", ctx.SessionNo)
+							skip = true
+							break
+						case 0x9: // Ping
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection ping\n", ctx.SessionNo)
+						case 0xA: // Pong
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection pong\n", ctx.SessionNo)
+							skip = true
+						default:
+							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket unknown type: %d\n", ctx.SessionNo, opcode)
+							skip = true
+						}
+						if !skip {
+							if n < offset+payloadLen {
+								copy(payload, buf[offset:n])
+								dataLen = n - offset
+							} else {
+
+								copy(payload, buf[offset:offset+payloadLen])
+								if masked {
+									for i := 0; i < payloadLen; i++ {
+										payload[i] ^= maskKey[i%4]
+									}
+								}
+
+								payloadLen = 0
+								dataLen = 0
+
+								switch opcode {
+								case 0x1: // Text frame
+									// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
+								case 0x2: // Binary frame
+									// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%v\n\n", ctx.SessionNo, payload[:payloadLen])
+									// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
+								}
+							}
+						}
+					} else {
+						if n < payloadLen-dataLen {
+							copy(payload[dataLen:], buf[:n])
+							dataLen = dataLen + n
+						} else {
+							copy(payload[dataLen:], buf[:payloadLen-dataLen])
+
+							if masked {
+								for i := 0; i < payloadLen; i++ {
+									payload[i] ^= maskKey[i%4]
+								}
+							}
+
+							if n > payloadLen-dataLen {
+								logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket data contains second payload %d bytes\n", ctx.SessionNo, payloadLen-dataLen-n)
+							}
+							payloadLen = 0
+							dataLen = 0
+
+							switch opcode {
+							case 0x1: // Text frame
+								// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload[:payloadLen])
+							case 0x2: // Binary frame
+								// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
+							}
+						}
+					}
+
 					src := ctx.AccessLog.ProxyIP
 					dst := ctx.AccessLog.SourceIP
 					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
 					if err != nil {
-						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doMitm: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
 					}
 				}
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
@@ -1239,12 +1514,18 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				//	break
 				//}
 			}
-			remoteConn.Close()
-			hijConn.Close()
-			//if c, ok := hijConn.(*net.TCPConn); ok {
-			//	c.CloseWrite()
-			//}
+			remoteRead = false
+			if !remoteWrite {
+				logging.Printf("ERROR", "doMitm: SessionID:%d remote close read\n", ctx.SessionNo)
+				remoteConn.Close()
+			}
+			hijWrite = false
+			if !hijRead {
+				logging.Printf("ERROR", "doMitm: SessionID:%d hij close write\n", ctx.SessionNo)
+				hijConn.Close()
+			}
 		}()
+
 		wg.Wait()
 		logging.Printf("INFO", "doMitm: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.Websocket)
 		hijConn.Close()
@@ -1252,6 +1533,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 		logging.Printf("DEBUG", "doMitm: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+		ctx.AccessLog.Protocol = "Upgrade:websocket"
 		logging.AccesslogWrite(ctx.AccessLog)
 		ctx.AccessLog.Starttime = time.Now()
 		ctx.AccessLog.BytesIN = 0
