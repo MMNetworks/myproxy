@@ -185,7 +185,8 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		AuthType:    prx.AuthType,
 		signer:      prx.signer,
 	}
-	ctx := &Context{Prx: cprx, SessionNo: atomic.AddInt64(&prx.SessionNo, 1)}
+	ctx := &Context{Prx: cprx, SessionNo: prx.SessionNo}
+	atomic.AddInt64(&prx.SessionNo, 1)
 
 	defer func() {
 		rec := recover()
@@ -198,9 +199,8 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 	// Ensure cleanup is performed when the function exits
 	defer func() {
-		logging.Printf("DEBUG", "ServeHTTP: cleanup Wireshark SessionID:%d maps\n", cprx.SessionNo)
-		protocol.CleanupWireshark(cprx.SessionNo)
 		logging.Printf("DEBUG", "ServeHTTP: cleanup cprx SessionID:%d\n", cprx.SessionNo)
+		protocol.CleanupWireshark(cprx.SessionNo)
 		cprx.Rt = nil
 		cprx.Dial = nil
 		cprx.UserData = nil
