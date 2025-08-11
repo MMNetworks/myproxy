@@ -1262,6 +1262,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 							break
 						case 0x9: // Ping
 							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection ping\n", ctx.SessionNo)
+							skip = true
 						case 0xA: // Pong
 							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection pong\n", ctx.SessionNo)
 							skip = true
@@ -1282,16 +1283,15 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 									}
 								}
 
-								payloadLen = 0
-								dataLen = 0
-
 								switch opcode {
 								case 0x1: // Text frame
 									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
 								case 0x2: // Binary frame
-									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%v\n\n", ctx.SessionNo, payload[:payloadLen])
 									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
 								}
+
+								payloadLen = 0
+								dataLen = 0
 							}
 						}
 					} else {
@@ -1310,8 +1310,6 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 							if n > payloadLen-dataLen {
 								logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket data contains second payload %d bytes\n", ctx.SessionNo, payloadLen-dataLen-n)
 							}
-							payloadLen = 0
-							dataLen = 0
 
 							switch opcode {
 							case 0x1: // Text frame
@@ -1319,6 +1317,9 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 							case 0x2: // Binary frame
 								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
 							}
+
+							payloadLen = 0
+							dataLen = 0
 						}
 					}
 
@@ -1442,6 +1443,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 							break
 						case 0x9: // Ping
 							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection ping\n", ctx.SessionNo)
+							skip = true
 						case 0xA: // Pong
 							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection pong\n", ctx.SessionNo)
 							skip = true
@@ -1462,16 +1464,15 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 									}
 								}
 
-								payloadLen = 0
-								dataLen = 0
-
 								switch opcode {
 								case 0x1: // Text frame
-									// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
+									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
 								case 0x2: // Binary frame
-									// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%v\n\n", ctx.SessionNo, payload[:payloadLen])
-									// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
+									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
 								}
+
+								payloadLen = 0
+								dataLen = 0
 							}
 						}
 					} else {
@@ -1490,15 +1491,16 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 							if n > payloadLen-dataLen {
 								logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket data contains second payload %d bytes\n", ctx.SessionNo, payloadLen-dataLen-n)
 							}
-							payloadLen = 0
-							dataLen = 0
 
 							switch opcode {
 							case 0x1: // Text frame
-								// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload[:payloadLen])
+								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload[:payloadLen])
 							case 0x2: // Binary frame
-								// logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
+								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
 							}
+
+							payloadLen = 0
+							dataLen = 0
 						}
 					}
 
