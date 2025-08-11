@@ -31,6 +31,7 @@ var wasRequest map[int64]bool
 
 func CleanupWireshark(sessionNo int64) {
 	// Cleanup Wiresharl map entries
+	logging.Printf("DEBUG", "ServeHTTP: cleanup Wireshark SessionID:%d maps\n", sessionNo)
 	delete(tcpSequence, sessionNo)
 	delete(tcpAcknowledge, sessionNo)
 	delete(tcpClientRand, sessionNo)
