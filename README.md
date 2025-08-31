@@ -157,18 +157,22 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>settings for upstream proxy. List of supported authentication methods in order of preference</li>
 <li>LocalBasicUser and LocalBasicHash is used to authenticate to this proxy. Hash is created by createPwHash</li>
 </ul>
+<li>connection:</li>
+<ul>
+<li>setting for connection timeouts. readtimeout(deafult = 0) can enable longstanding session e.g. websockets. For granular control see websocket settings</li>
+</ul>
 <li>mitm:</li>
 <ul>
 <li>settings for TLS break of proxy connection.(default disabled) </li>
 <li>needs either a string with key and certificate or file names pointing to a key and certficate</li>
 <li>The include/exclude list can be used to bypass TLS break </li>
 <ul>
-<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;;&lt;selfsignedrootCA;&gt;
+<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;;&lt;selfsignedrootCA|insecure;&gt;
 <ul>
 <li>        source IP or subnet to include for TLS break or exclude if prefixed with !</li>
 <li>        the second value determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
 <li>        the third value is a regex to match the URL against.</li>
-<li>        the last value is a location of a selfsigned rootCA file. When MITM is enabled the proxy needs to verify the server cert instead of the client. This helps to limit selfsigned certificate checks</li>
+<li>        the last value is a location of a selfsigned rootCA file. When MITM is enabled the proxy needs to verify the server cert instead of the client. This helps to limit selfsigned certificate checks. it can also be set to ignore certificate check with the keyword insecure</li>
 <li>The include/exclude file will be appended to the incexc list</li> 
 </ul>
 </ul>
@@ -177,6 +181,27 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <ul>
 <li>settings for wireshark listen ip and port. You can connect using wireshark -k -i TCP@&lt;ip&gt;:&lt;port&gt; </li>
 <li>The include/exclude list can be used to limit access to wireshark listening port</li>
+<li>There is also an option to send the unmasked websocket traffic to wireshark instead of the masked traffic</li>
+<ul>
+</ul>
+</ul>
+<li>clamd:</li>
+<ul>
+<li>settings for clamd connection. This can be a unix socket or over TCP and HTTPS. You have to provide a client cert and key for MTLS to the provided HTTPS server which converts HTTPS requests into clamd. This was added to make sure remote clamd connections are protected and authenticated.</li>
+<li>clamd has also a setting to block virus infected traffic or only report and a setting to block when clamd is unavailable</li> 
+<ul>
+</ul>
+<li>websocket:</li>
+<ul>
+<li>settings to control websocket usage. The include/exclude list can be used to enable websocket per client and URL with a timeout. A timeout of 0 basically disables websockets. A default timeout can be set using the timeout setting. Websocket conenction will also be inspected when MITM is set.</li>
+<ul>
+<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;;&lt;timeout;&gt;
+<ul>
+<li>        source IP or subnet to include for websocket use or exclude if prefixed with !</li>
+<li>        the second value determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
+<li>        the third value is a regex to match the URL against.</li>
+<li>        the last value is a timeout value in seconds</li>
+</ul>
 <ul>
 </ul>
 </ul>
@@ -194,18 +219,35 @@ listen:
   ip: 127.0.0.1
   port: 9080
 wireshark:
+  enable: true
+  unmaskedwebsocket: true
   ip: 127.0.0.1
   port: 19000
   incexc:
      - "127.0.0.1/32"
+clamd:
+  enable: true
+  block: true
+  blockonerror: true
+  connection: "unix:/var/run/clamav/clamd.ctl"
+  cert: "cliencert.pem"
+  key: "clienkey.pem"
+  rootca: "rootca.pem"
 logging:
   level: "debug"
   file: "log_9080"
   trace: false
   accesslog: "access.log"
 connection:
+  readtimeout: 0
   timeout: 5
   keepalive: 5
+websocket:
+  timeout: 10
+  incexc:
+    - "127.0.0.1/32;;.*;30"
+    - "!10.0.0.0/8;;.*"
+    - "192.168.0.0/16;;.*:60"
 ftp:
   username: "ftp"
   password: "anonymous@ftp.com"

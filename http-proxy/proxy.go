@@ -7,6 +7,7 @@ import (
 	"myproxy/logging"
 	"myproxy/protocol"
 	"myproxy/readconfig"
+	"myproxy/viruscheck"
 	"net"
 	"net/http"
 	"os"
@@ -68,6 +69,9 @@ type Proxy struct {
 	// HTTP Authentication type. If it's not specified (""), uses "Basic".
 	// By default, "".
 	AuthType string
+
+	// clamd Client
+	ClamdStruct *viruscheck.ClamdStruct
 
 	signer *CaSigner
 }
@@ -169,24 +173,12 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 // ServeHTTP implements http.Handler.
 func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	cprx := &Proxy{
-		SessionNo:   prx.SessionNo,
-		Rt:          prx.Rt,
-		Dial:        prx.Dial,
-		Ca:          prx.Ca,
-		UserData:    prx.UserData,
-		OnError:     prx.OnError,
-		OnAccept:    prx.OnAccept,
-		OnAuth:      prx.OnAuth,
-		OnConnect:   prx.OnConnect,
-		OnRequest:   prx.OnRequest,
-		OnResponse:  prx.OnResponse,
-		MitmChunked: prx.MitmChunked,
-		AuthType:    prx.AuthType,
-		signer:      prx.signer,
-	}
-	ctx := &Context{Prx: cprx, SessionNo: prx.SessionNo}
-	atomic.AddInt64(&prx.SessionNo, 1)
+	ctx := &Context{Prx: prx,
+		SessionNo:      atomic.AddInt64(&prx.SessionNo, 1),
+		TCPState:       &protocol.TCPStruct{},
+		WebsocketState: &protocol.WSStruct{},
+		Rt:             prx.Rt,
+		Dial:           prx.Dial}
 
 	defer func() {
 		rec := recover()
@@ -196,22 +188,6 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			panic(rec)
 		}
-	}()
-	// Ensure cleanup is performed when the function exits
-	defer func() {
-		logging.Printf("DEBUG", "ServeHTTP: cleanup cprx SessionID:%d\n", cprx.SessionNo)
-		protocol.CleanupWireshark(cprx.SessionNo)
-		cprx.Rt = nil
-		cprx.Dial = nil
-		cprx.UserData = nil
-		cprx.OnError = nil
-		cprx.OnAccept = nil
-		cprx.OnAuth = nil
-		cprx.OnConnect = nil
-		cprx.OnRequest = nil
-		cprx.OnResponse = nil
-		cprx.signer = nil
-		cprx = nil
 	}()
 	// Initialise access log values
 	ctx.AccessLog.Proxy, _ = os.Hostname()
@@ -241,14 +217,14 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.AccessLog.Duration = time.Duration(0)
 	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if !ok {
-		cprx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
+		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
 		return
 	}
 
 	// Get the local address from the connection
 	localAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		cprx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
+		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
 		return
 	}
 	ctx.AccessLog.ProxyIP = localAddr.String()
@@ -274,7 +250,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var cyclic = false
 		switch ctx.ConnectAction {
 		case ConnectMitm:
-			if cprx.MitmChunked {
+			if prx.MitmChunked {
 				cyclic = true
 			}
 			w2, r2 = ctx.doMitm()

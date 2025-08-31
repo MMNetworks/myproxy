@@ -37,7 +37,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	proxy := ctx.UpstreamProxy
 
 	if proxy == "" {
-		logging.Printf("DEBUG", "FtpRoundTrip: SessionID:%d proxy not set\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "FtpRoundTrip: SessionID:%d upstream proxy not set\n", ctx.SessionNo)
 	} else {
 		newDial := net.Dialer{
 			Timeout:   timeOut * time.Second, // Set the timeout duration
@@ -47,7 +47,7 @@ func (fR *FtpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		logging.Printf("DEBUG", "FtpRoundTrip: SessionID:%d After Dial: %v\n", ctx.SessionNo, c2s(conn))
 		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = ""
-		// godump.Dump(ctx.Prx.Rt)
+		// godump.Dump(ctx.Rt)
 		if err != nil {
 			logging.Printf("ERROR", "FtpRoundTripper: SessionID:%d Error connecting to proxy: %s %v\n", ctx.SessionNo, proxy, err)
 			return nil, err

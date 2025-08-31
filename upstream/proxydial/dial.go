@@ -54,7 +54,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		conn, err = newDial.Dial("tcp", proxy)
 		logging.Printf("DEBUG", "PrxDial: SessionID:%d After Dial: %v\n", ctx.SessionNo, c2s(conn))
 		// Overwrite upstream Proxy
-		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
+		ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			Dial: func(network, addr string) (net.Conn, error) {
 				return conn, err
 			},
@@ -63,7 +63,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			},
 		}
 		// defer conn.Close()
-		// godump.Dump(ctx.Prx.Rt)
+		// godump.Dump(ctx.Rt)
 		req := ctx.ConnectReq
 		if err != nil {
 			logging.Printf("ERROR", "PrxDial: SessionID:%d Error connecting to proxy: %s %v\n", ctx.SessionNo, proxy, err)
@@ -80,7 +80,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		}
 		fmt.Fprintf(conn, "\r\n")
 
-		logging.Printf("DEBUG", "PrxDial: SessionID:%d TLSMitm %t\n", ctx.SessionNo, tlsMitm)
+		logging.Printf("DEBUG", "PrxDial: SessionID:%d Have MITM with tls: %t\n", ctx.SessionNo, tlsMitm)
 		if tlsMitm {
 			// Step 1: Dial TLS manually
 			serverName, _, err := net.SplitHostPort(ctx.ConnectReq.Host)
@@ -88,7 +88,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 				// If there's no port, r.Host is just the hostname
 				serverName = ctx.ConnectReq.Host
 			}
-			transportRt := ctx.Prx.Rt.(*http.Transport)
+			transportRt := ctx.Rt.(*http.Transport)
 			transportRt.TLSClientConfig.ServerName = serverName
 
 			// Wrap the existing net.Conn with TLS
@@ -117,7 +117,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			// fake http for RoundTrip to not throw an error, but return hesder.
 			req.URL, err = url.Parse("http://" + address)
 			if err != nil {
-				logging.Printf("ERROR", "PrxDial: SessionID:%d Creating request for proxy: %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "PrxDial: SessionID:%d Failed creating request for proxy: %v\n", ctx.SessionNo, err)
 				return nil, err
 			}
 			req.Header.Add("Proxy-Connection", "Keep-Alive")
@@ -128,7 +128,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = ""
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "PrxDial: SessionID:%d Failed to connect to proxy response status: %s\n", ctx.SessionNo, resp.Status)
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Failed to connect to proxy. Response status: %s\n", ctx.SessionNo, resp.Status)
 			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
 		}
 
@@ -137,19 +137,21 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			Timeout:   5 * time.Second, // Set the timeout duration
 			KeepAlive: 5 * time.Second,
 		}
-		logging.Printf("DEBUG", "PrxDial: SessionID:%d TLSMitm %t\n", ctx.SessionNo, tlsMitm)
+		logging.Printf("DEBUG", "PrxDial: SessionID:%d Have MITM with tls: %t\n", ctx.SessionNo, tlsMitm)
 		if tlsMitm {
 			// Step 1: Dial TLS manually
-			serverName, _, err := net.SplitHostPort(ctx.ConnectReq.Host)
-			if err != nil {
+			serverName, _, errl := net.SplitHostPort(ctx.ConnectReq.Host)
+			if errl != nil {
 				// If there's no port, r.Host is just the hostname
 				serverName = ctx.ConnectReq.Host
 			}
-			transportRt := ctx.Prx.Rt.(*http.Transport)
+			transportRt := ctx.Rt.(*http.Transport)
 			transportRt.TLSClientConfig.ServerName = serverName
 
+			logging.Printf("DEBUG", "PrxDial: SessionID:%d Connect to %s\n", ctx.SessionNo, address)
 			conn, err = tls.Dial("tcp", address, transportRt.TLSClientConfig)
 		} else {
+			logging.Printf("DEBUG", "PrxDial: SessionID:%d Connect to %s\n", ctx.SessionNo, address)
 			conn, err = newDial.Dial("tcp", address)
 		}
 		if err != nil {
