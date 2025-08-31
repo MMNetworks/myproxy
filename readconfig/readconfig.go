@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -37,8 +38,9 @@ type Logging struct {
 	Trace     bool   `yaml:"trace"`
 }
 type Connection struct {
-	Timeout   int `yaml:"timeout"`
-	Keepalive int `yaml:"keepalive"`
+	ReadTimeout int `yaml:"readtimeout"`
+	Timeout     int `yaml:"timeout"`
+	Keepalive   int `yaml:"keepalive"`
 }
 type WebSocket struct {
 	Timeout int      `yaml:"timeout"`
@@ -58,9 +60,20 @@ type MITM struct {
 	IncExcFile string   `yaml:"incexcfile"`
 }
 type Wireshark struct {
-	IP     string   `yaml:"ip"`
-	Port   string   `yaml:"port"`
-	IncExc []string `yaml:"incexc"`
+	Enable            bool     `yaml:"enable"`
+	UnmaskedWebSocket bool     `yaml:"unmaskedwebsocket"`
+	IP                string   `yaml:"ip"`
+	Port              string   `yaml:"port"`
+	IncExc            []string `yaml:"incexc"`
+}
+type Clamd struct {
+	Enable       bool   `yaml:"enable"`
+	Block        bool   `yaml:"block"`
+	BlockOnError bool   `yaml:"blockonerror"`
+	Cert         string `yaml:"cert"`
+	Key          string `yaml:"key"`
+	CA           string `yaml:"rootca"`
+	Connection   string `yaml:"connection"`
 }
 type Proxy struct {
 	Authentication []string `yaml:"authentication"`
@@ -87,6 +100,7 @@ type Schema struct {
 	FTP        FTP        `yaml:"ftp"`
 	MITM       MITM       `yaml:"mitm"`
 	Wireshark  Wireshark  `yaml:"wireshark"`
+	Clamd      Clamd      `yaml:"clamd"`
 }
 
 func ReadConfig(configFilename string) (*Schema, error) {
@@ -333,7 +347,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 
 	}
 	for i, v := range configOut.MITM.IncExc {
-		// IncExc string format (!|)src,(client|proxy);regex
+		// IncExc string format (!|)src,(client|proxy);regex;certfile
 		isEmpty, _ := regexp.MatchString("^[ ]*$", v)
 		hasThreeEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
 		hasFourEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;[^;]*;.*", v)
@@ -348,7 +362,6 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		cidr := v[:spos]
 		epos := strings.Index(cidr, "!")
 		cpos := strings.Index(cidr, "/")
-		// log.Printf("DEBUG: ReadConfig: Include/Exclude %s, Exclamation: %d, Semicolon: %d\n",v,epos,spos)
 		if epos == 0 {
 			cidr = cidr[1:]
 		}
@@ -364,14 +377,75 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			// Parse Include/Exclude line
 			rpos := strings.LastIndex(v, ";")
 			rootCAStr := v[rpos+1:]
-			rootCAFilepath, err := filepath.Abs(rootCAStr)
+			if rootCAStr != "insecure" {
+				rootCAFilepath, err := filepath.Abs(rootCAStr)
+				if err != nil {
+					return nil, err
+				}
+				_, err = os.Stat(rootCAFilepath)
+				if errors.Is(err, os.ErrNotExist) {
+					return nil, err
+				}
+			}
+		}
+	}
+	for i, v := range configOut.WebSocket.IncExc {
+		// IncExc string format (!|)src,(client|proxy);regex;timeout
+		isEmpty, _ := regexp.MatchString("^[ ]*$", v)
+		hasThreeEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
+		hasFourEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;[^;]*;.*", v)
+		if isEmpty {
+			continue
+		}
+		if !hasThreeEntries {
+			log.Printf("ERROR: ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s\n", i+1, v)
+			return nil, errors.New("Invalid Include/Exclude line")
+		}
+		spos := strings.Index(v, ";")
+		cidr := v[:spos]
+		epos := strings.Index(cidr, "!")
+		cpos := strings.Index(cidr, "/")
+		// log.Printf("DEBUG: ReadConfig: Include/Exclude %s, Exclamation: %d, Semicolon: %d\n",v,epos,spos)
+		if epos == 0 {
+			cidr = cidr[1:]
+		}
+		if cpos == -1 {
+			cidr = cidr + "/32"
+		}
+		_, _, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("ERROR: ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
+			return nil, errors.New("Invalid Include/Exclude line")
+		}
+		if hasFourEntries {
+			// Parse Include/Exclude line
+			rpos := strings.LastIndex(v, ";")
+			timeoutStr := v[rpos+1:]
+			_, err := strconv.Atoi(timeoutStr)
 			if err != nil {
-				return nil, err
+				log.Printf("ERROR: ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
+				return nil, errors.New("Invalid Include/Exclude line")
 			}
-			_, err = os.Stat(rootCAFilepath)
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, err
-			}
+		}
+	}
+	for i, cidr := range configOut.Wireshark.IncExc {
+		// IncExc string format (!|)src
+		isEmpty, _ := regexp.MatchString("^[ ]*$", cidr)
+		if isEmpty {
+			continue
+		}
+		epos := strings.Index(cidr, "!")
+		cpos := strings.Index(cidr, "/")
+		if epos == 0 {
+			cidr = cidr[1:]
+		}
+		if cpos == -1 {
+			cidr = cidr + "/32"
+		}
+		_, _, err := net.ParseCIDR(cidr)
+		if err != nil {
+			log.Printf("ERROR: ReadConfig: wrong syntax of Wireshark Include/Exclude field: %d:%s err:%v\n", i+1, cidr, err)
+			return nil, errors.New("Invalid Include/Exclude line")
 		}
 	}
 	if configOut.Listen.IP == "" {
@@ -379,6 +453,9 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 	if configOut.Listen.Port == "" {
 		configOut.Listen.Port = "9080"
+	}
+	if configOut.Wireshark.IP == "" {
+		configOut.Wireshark.IP = "127.0.0.1"
 	}
 	if configOut.Wireshark.Port == "" {
 		configOut.Wireshark.Port = "19000"
@@ -393,7 +470,40 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		configOut.Connection.Keepalive = 10
 	}
 	if configOut.WebSocket.Timeout == 0 {
-		configOut.WebSocket.Timeout = 30
+		if configOut.Connection.ReadTimeout != 0 {
+			configOut.WebSocket.Timeout = configOut.Connection.ReadTimeout
+		}
+	}
+	if configOut.Clamd.Connection == "" {
+		configOut.Clamd.Connection = "unix:/var/run/clamav/clamd.ctl"
+	}
+	prefix := "tls:"
+	if strings.HasPrefix(configOut.Clamd.Connection, prefix) {
+		if configOut.Clamd.Cert == "" || configOut.Clamd.Key == "" {
+			return nil, errors.New("Missing Client Cert or Key to authenticate")
+		}
+	}
+
+	if configOut.Clamd.Cert != "" {
+		certFilepath, err := filepath.Abs(configOut.Clamd.Cert)
+		if err != nil {
+			return nil, err
+		}
+		configOut.Clamd.Cert = certFilepath
+	}
+	if configOut.Clamd.Key != "" {
+		keyFilepath, err := filepath.Abs(configOut.Clamd.Key)
+		if err != nil {
+			return nil, err
+		}
+		configOut.Clamd.Key = keyFilepath
+	}
+	if configOut.Clamd.CA != "" && configOut.Clamd.CA != "insecure" {
+		caFilepath, err := filepath.Abs(configOut.Clamd.CA)
+		if err != nil {
+			return nil, err
+		}
+		configOut.Clamd.CA = caFilepath
 	}
 	if configOut.FTP.Username == "" {
 		configOut.FTP.Username = "anonymous"

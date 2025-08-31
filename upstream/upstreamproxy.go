@@ -67,7 +67,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 				Values := pResp.Header.Get("Cache-Control")
 				_, err = io.ReadAll(pResp.Body)
 				if err != nil {
-					logging.Printf("ERROR", "SetProxy: SessionID:%d could not parse PAC file: %v\n", ctx.SessionNo, err)
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Could not parse PAC file: %v\n", ctx.SessionNo, err)
 					return err
 				}
 				defer pResp.Body.Close()
@@ -79,32 +79,32 @@ func SetProxy(ctx *httpproxy.Context) error {
 					if ipos2 > ipos1 {
 						cacheTime, err = time.ParseDuration(Values[ipos1+8:ipos2] + "s")
 						if err != nil {
-							logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: %v\n", ctx.SessionNo, err)
+							logging.Printf("ERROR", "SetProxy: SessionID:%d Could not determine cache time: %v\n", ctx.SessionNo, err)
 							return err
 						}
 					} else {
 						cacheTime, err = time.ParseDuration(Values[ipos1+8:ipos2] + "s")
 						if err != nil {
-							logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: %v\n", ctx.SessionNo, err)
+							logging.Printf("ERROR", "SetProxy: SessionID:%d Could not determine cache time: %v\n", ctx.SessionNo, err)
 							return err
 						}
 					}
 				} else {
-					logging.Printf("ERROR", "SetProxy: SessionID:%d could not determine cache time: max-age not send\n", ctx.SessionNo)
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Could not determine cache time: max-age not send\n", ctx.SessionNo)
 				}
 				if readconfig.Config.PAC.CacheTime != 0 {
 					cacheTime = time.Duration(readconfig.Config.PAC.CacheTime) * time.Second
 				}
 				timeNext = time.Now().Add(cacheTime)
-				logging.Printf("DEBUG", "SetProxy: SessionID:%d set cache time to: %s\n", ctx.SessionNo, cacheTime.String())
+				logging.Printf("INFO", "SetProxy: SessionID:%d Set PAC cache time to: %s\n", ctx.SessionNo, cacheTime.String())
 				pResp, err = hclient.Get(readconfig.Config.PAC.URL)
 				if err != nil {
-					logging.Printf("ERROR", "SetProxy: SessionID:%d could not get PAC URL: %v\n", ctx.SessionNo, err)
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Could not get PAC URL: %v\n", ctx.SessionNo, err)
 					return err
 				}
 				buf, err = io.ReadAll(pResp.Body)
 				if err != nil {
-					logging.Printf("ERROR", "SetProxy: SessionID:%d could not get PAC URL: %v\n", ctx.SessionNo, err)
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Could not get PAC URL: %v\n", ctx.SessionNo, err)
 					return err
 				}
 				defer pResp.Body.Close()
@@ -112,7 +112,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d use PAC file: %s\n", ctx.SessionNo, readconfig.Config.PAC.File)
 				buf, err = os.ReadFile(readconfig.Config.PAC.File)
 				if err != nil {
-					logging.Printf("ERROR", "SetProxy: SessionID:%d could not read PAC file: %v\n", ctx.SessionNo, err)
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Could not read PAC file: %v\n", ctx.SessionNo, err)
 					return err
 				}
 				if readconfig.Config.PAC.CacheTime != 0 {
@@ -123,15 +123,15 @@ func SetProxy(ctx *httpproxy.Context) error {
 			}
 			pac, err = gpac.New(string(buf))
 			if err != nil {
-				logging.Printf("ERROR", "SetProxy: SessionID:%d could not load PAC data: %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "SetProxy: SessionID:%d Could not load PAC data: %v\n", ctx.SessionNo, err)
 				return err
 			}
-			logging.Printf("DEBUG", "SetProxy: SessionID:%d Next check for PAC data: %s\n", ctx.SessionNo, timeNext.Format(time.RFC850))
+			logging.Printf("INFO", "SetProxy: SessionID:%d Next check for PAC data: %s\n", ctx.SessionNo, timeNext.Format(time.RFC850))
 		}
 		logging.Printf("DEBUG", "SetProxy: SessionID:%d PAC FindProxyForURL\n", ctx.SessionNo)
 		proxyFrompac, err := pac.FindProxyForURL(ctx.Req.URL.String())
 		if err != nil {
-			logging.Printf("ERROR", "SetProxy: SessionID:%d could not find proxy from PAC data: %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "SetProxy: SessionID:%d Could not find proxy from PAC data: %v\n", ctx.SessionNo, err)
 			return err
 		}
 
@@ -204,7 +204,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 	}
 	if proxyFQDN != "" && strings.ToUpper(proxyFQDN) != "DIRECT" {
 		proxyStr := "http://" + proxyFQDN + ":" + proxyPort
-		logging.Printf("DEBUG", "SetProxy: SessionID:%d proxySTR: %s\n", ctx.SessionNo, proxyStr)
+		logging.Printf("INFO", "SetProxy: SessionID:%d Setting upstream proxy to %s\n", ctx.SessionNo, proxyStr)
 		proxyURL, err := url.Parse(proxyStr)
 		if err != nil {
 			logging.Printf("ERROR", "SetProxy: SessionID:%d Could not parse proxy URL %s\n", ctx.SessionNo, proxyStr)
@@ -212,7 +212,7 @@ func SetProxy(ctx *httpproxy.Context) error {
 		}
 		logging.Printf("DEBUG", "SetProxy: SessionID:%d URL Scheme: %s\n", ctx.SessionNo, ctx.Req.URL.Scheme)
 		// Overwrite upstream Proxy
-		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
+		ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			Proxy: http.ProxyURL(proxyURL),
 			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 				logging.Printf("TRACE", "myproxy/upstream.SetProxy.Proxy.Transport.DialContext: called\n")
@@ -242,18 +242,18 @@ func SetProxy(ctx *httpproxy.Context) error {
 			},
 		}
 		if strings.ToUpper(ctx.Req.URL.Scheme) == "FTP" {
-			ctx.Prx.Rt = &FtpRoundTripper{
+			ctx.Rt = &FtpRoundTripper{
 				GetContext: func() *httpproxy.Context {
 					return ctx
 				},
 			}
 		}
 		// Use upstream Proxy for CONNECT
-		ctx.Prx.Dial = proxydial.PrxDial
+		ctx.Dial = proxydial.PrxDial
 		ctx.UpstreamProxy = proxyFQDN + ":" + proxyPort
 	} else {
-		logging.Printf("DEBUG", "SetProxy: SessionID:%d proxySTR: DIRECT\n", ctx.SessionNo)
-		ctx.Prx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
+		logging.Printf("INFO", "SetProxy: SessionID:%d Setting no upstream proxy\n", ctx.SessionNo)
+		ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 				logging.Printf("TRACE", "myproxy/upstream.SetProxy.NoProxy.Transport.DialContext: called\n")
 				conn, err := (&net.Dialer{
@@ -279,8 +279,8 @@ func SetProxy(ctx *httpproxy.Context) error {
 				return conn, nil
 			},
 		}
-		// ctx.Prx.Dial = httpproxy.NetDial
-		ctx.Prx.Dial = proxydial.PrxDial
+		// ctx.Dial = httpproxy.NetDial
+		ctx.Dial = proxydial.PrxDial
 		ctx.UpstreamProxy = ""
 	}
 	return nil

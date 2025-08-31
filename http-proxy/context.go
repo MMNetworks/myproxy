@@ -6,14 +6,16 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"github.com/secsy/goftp"
+	//        "github.com/dutchcoders/go-clamd"
+	"errors"
 	"io"
 	"io/ioutil"
 	"myproxy/logging"
 	"myproxy/protocol"
 	"myproxy/readconfig"
+	"myproxy/viruscheck"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -34,14 +36,27 @@ type Context struct {
 	// Session number of this context obtained from Proxy struct.
 	SessionNo int64
 
-	// Session number of this context obtained from Proxy struct.
-	Websocket bool
-
-	// Session number of this context obtained from Proxy struct.
-	WebsocketConn net.Conn
-
 	// Sub session number of processing remote connection.
 	SubSessionNo int64
+
+	// Session read timeout e.g. for Websocket connections
+	ReadTimeout int
+
+	// Original Proxy Roundtripper
+	// RoundTripper interface to obtain remote response.
+	// changes depening on upstream proxy
+	Rt http.RoundTripper
+
+	// Original Proxy Dial
+	// Dial interface to connect to remote host.
+	// changes depening on upstream proxy
+	Dial func(ctx *Context, network string, address string) (net.Conn, error)
+
+	//  Request / Response connection information for Websocket Connection
+	WebsocketState *protocol.WSStruct
+
+	// Request / Response connection information for Wireshark
+	TCPState *protocol.TCPStruct
 
 	// Original Proxy request.
 	// It's using internally. Don't change in Context struct!
@@ -72,6 +87,10 @@ type Context struct {
 
 	hijTLSConn   *tls.Conn
 	hijTLSReader *bufio.Reader
+}
+
+func (ctx *Context) GetTCPState() *protocol.TCPStruct {
+	return ctx.TCPState
 }
 
 func (ctx *Context) onAccept(w http.ResponseWriter, r *http.Request) bool {
@@ -203,8 +222,9 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type ftpLogWriter struct {
-	writer io.Writer
-	bytes  *bytesCounter
+	writer    io.Writer
+	bytes     *bytesCounter
+	sessionNo int64
 }
 
 type bytesCounter struct {
@@ -217,11 +237,10 @@ func (w ftpLogWriter) Write(p []byte) (n int, err error) {
 	lines := bytes.Split(p, []byte("\n"))
 
 	logString := string(p)
-	//      logging.Printf("DEBUG", "doFtp: ftpLogWriter: Size: %d logString: %s\n", len(lines)-1,logString)
 	for _, line := range lines {
 		str := string(line)
 		if str != "" {
-			logging.Printf("DEBUG", "doFtp: ftpLogWriter: %s\n", str)
+			logging.Printf("DEBUG", "ftpLogWriter: SessionID:%d logstring: %s\n", w.sessionNo, str)
 		}
 	}
 	sendIndex := strings.Index(logString, "sending command ")
@@ -232,7 +251,7 @@ func (w ftpLogWriter) Write(p []byte) (n int, err error) {
 	if gotIndex != -1 {
 		w.bytes.totalBytesIN += int64(len(logString[gotIndex+4:])) + int64(len(lines)-1)
 	}
-	//      logging.Printf("DEBUG", "doFtp: ftpLogWriter: BytesIN: %d BytesOUT: %d\n", w.bytes.totalBytesIN, w.bytes.totalBytesOUT)
+	//      logging.Printf("DEBUG", "ftpLogWriter: SessionID:%d BytesIN: %d BytesOUT: %d\n", w.sessionNo, w.bytes.totalBytesIN, w.bytes.totalBytesOUT)
 	return len(p), nil
 }
 
@@ -266,7 +285,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	}
 
 	if proxy == "" {
-		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d proxy not set\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d upstream proxy not set\n", ctx.SessionNo)
 		return true, nil
 	}
 
@@ -289,29 +308,49 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
+		err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, requestDump)
 		if err != nil {
-			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 		}
 	}
 
-	logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
-	resp, err := ctx.Prx.Rt.RoundTrip(r)
-	if err != nil {
-		ctx.doError("Ftp", ErrRemoteConnect, err)
-		if resp != nil {
-			ctx.AccessLog.Status = resp.Status
+	name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, requestDump)
+	if infected {
+		if ctx.AccessLog.VirusList == "" {
+			ctx.AccessLog.VirusList = name
 		} else {
-			ctx.AccessLog.Status = "404 " + err.Error()
+			ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
 		}
-		ctx.AccessLog.Endtime = time.Now()
-		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-		logging.AccesslogWrite(ctx.AccessLog)
-		ctx.AccessLog.Starttime = time.Now()
-		ctx.AccessLog.BytesIN = 0
-		ctx.AccessLog.BytesOUT = 0
-		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, err
+		logging.Printf("INFO", "doFtpUpstream: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
+	}
+	var resp *http.Response
+	if infected && readconfig.Config.Clamd.Block {
+		resp = &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Virus found",
+			Header:     make(http.Header),
+			Body:       http.NoBody, // You can set a custom body if needed
+		}
+	} else {
+
+		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
+		resp, err = ctx.Rt.RoundTrip(r)
+		if err != nil {
+			ctx.doError("Ftp", ErrRemoteConnect, err)
+			if resp != nil {
+				ctx.AccessLog.Status = resp.Status
+			} else {
+				ctx.AccessLog.Status = "404 " + err.Error()
+			}
+			ctx.AccessLog.Endtime = time.Now()
+			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
+			logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d Connection closed.\n", ctx.SessionNo)
+			return false, err
+		}
 	}
 	bodySize := r.ContentLength
 
@@ -350,9 +389,27 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, responseDump)
+		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, responseDump)
 		if err != nil {
 			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+		}
+	}
+
+	name, infected = viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, responseDump)
+	if infected {
+		if ctx.AccessLog.VirusList == "" {
+			ctx.AccessLog.VirusList = name
+		} else {
+			ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+		}
+		logging.Printf("INFO", "doFtpUpstream: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
+	}
+	if infected && readconfig.Config.Clamd.Block {
+		resp = &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Virus found",
+			Header:     make(http.Header),
+			Body:       http.NoBody, // You can set a custom body if needed
 		}
 	}
 
@@ -446,109 +503,61 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
+		err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, requestDump)
 		if err != nil {
 			logging.Printf("ERROR", "doFtp: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 		}
 	}
-	// Try to count bytes send & received based on log data
-	// It will miss
-	// 	first 220 Header from server
-	// 	Password length as it is hidden
-	// Also directory data count is not exact as size is converted to bytes, kB, MB, etc.
-	// Creates only one access log entry with bytesIN & bytesOUT from control and data connection combined.
-	counterMap := make(map[int64]bytesCounter)
-	ftpBytesCounter := counterMap[ctx.SessionNo]
-	logWriter := &ftpLogWriter{bytes: &ftpBytesCounter}
-	ftpClientConfig := goftp.Config{
-		User:               user,
-		Password:           pass,
-		ConnectionsPerHost: 1,
-		Timeout:            timeOut * time.Second,
-		Logger:             logWriter,
-	}
-	if !HasPort.MatchString(host) {
-		host += ":21"
-		port = "21"
-	}
-	ftpClient, err = goftp.DialConfig(ftpClientConfig, host)
-	ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
-	defer ftpClient.Close()
-	if err != nil {
-		ctx.doError("Ftp", ErrRemoteConnect, err)
-		ctx.AccessLog.Status = "500 internal error"
-		ctx.AccessLog.Endtime = time.Now()
-		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-		if err.(goftp.Error).Code() == 530 {
-			ctx.AccessLog.Status = "403 login failed"
+
+	name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, requestDump)
+	if infected {
+		if ctx.AccessLog.VirusList == "" {
+			ctx.AccessLog.VirusList = name
+		} else {
+			ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
 		}
-		ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
-		logging.AccesslogWrite(ctx.AccessLog)
-		ctx.AccessLog.Starttime = time.Now()
-		ctx.AccessLog.BytesIN = 0
-		ctx.AccessLog.BytesOUT = 0
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, err
+		logging.Printf("INFO", "doFtp: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
 	}
-
-	// Use data conection creation to find remote IP
-	rawConn, err := ftpClient.OpenRawConn()
-	if err != nil {
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Error opening raw connection: %v\n", ctx.SessionNo, err)
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, err
-	}
-
-	// Prepare the data connection
-	dcGetter, err := rawConn.PrepareDataConn()
-	if err != nil {
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Error preparing data connection: %v\n", ctx.SessionNo, err)
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, err
-	}
-	dataConn, err := dcGetter()
-	if err != nil {
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Error getting data connection: %v\n", ctx.SessionNo, err)
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, err
-	}
-	dataConn.Close()
-	remoteAddr := dataConn.RemoteAddr().(*net.TCPAddr)
-	// Replace high port of data connection with control connection port
-	ctx.AccessLog.DestinationIP = remoteAddr.IP.String() + ":" + port
 
 	buf := new(bytes.Buffer)
-	if strings.ToUpper(method) == "PUT" {
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Storing File: %s\n", ctx.SessionNo, r.URL.Path)
-		ioBuf, err := io.ReadAll(r.Body)
+	if infected && readconfig.Config.Clamd.Block {
+		respCode = http.StatusForbidden
+		respHeader.Set("Content-Type", "application/octet-stream")
+		respHeader.Set("Connection", "close")
+		buf.WriteString("")
+		ctx.AccessLog.Status = "403 Virus found"
+	} else {
+		// Try to count bytes send & received based on log data
+		// It will miss
+		// 	first 220 Header from server
+		// 	Password length as it is hidden
+		// Also directory data count is not exact as size is converted to bytes, kB, MB, etc.
+		// Creates only one access log entry with bytesIN & bytesOUT from control and data connection combined.
+		counterMap := make(map[int64]bytesCounter)
+		ftpBytesCounter := counterMap[ctx.SessionNo]
+		logWriter := &ftpLogWriter{bytes: &ftpBytesCounter, sessionNo: ctx.SessionNo}
+		ftpClientConfig := goftp.Config{
+			User:               user,
+			Password:           pass,
+			ConnectionsPerHost: 1,
+			Timeout:            timeOut * time.Second,
+			Logger:             logWriter,
+		}
+		if !HasPort.MatchString(host) {
+			host += ":21"
+			port = "21"
+		}
+		ftpClient, err = goftp.DialConfig(ftpClientConfig, host)
+		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
+		defer ftpClient.Close()
 		if err != nil {
-			logging.Printf("ERROR", "doFtp: SessionID:%d could not receive File %v\n", ctx.SessionNo, err)
-			logging.Printf("DEBUG", "doFtp: SessionID:%d Error writing file.\n", ctx.SessionNo)
 			ctx.doError("Ftp", ErrRemoteConnect, err)
 			ctx.AccessLog.Status = "500 internal error"
 			ctx.AccessLog.Endtime = time.Now()
 			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
-			logging.AccesslogWrite(ctx.AccessLog)
-			ctx.AccessLog.Starttime = time.Now()
-			ctx.AccessLog.BytesIN = 0
-			ctx.AccessLog.BytesOUT = 0
-			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
-			return false, err
-		}
-		err = ftpClient.Store(r.URL.Path, bytes.NewBuffer(ioBuf))
-		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
-		if err != nil {
-			logging.Printf("DEBUG", "doFtp: SessionID:%d Error writing file.\n", ctx.SessionNo)
-			ctx.doError("Ftp", ErrRemoteConnect, err)
-			ctx.AccessLog.Status = "500 internal error"
 			if err.(goftp.Error).Code() == 530 {
 				ctx.AccessLog.Status = "403 login failed"
 			}
-			ctx.AccessLog.Endtime = time.Now()
-			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
 			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
 			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 			logging.AccesslogWrite(ctx.AccessLog)
@@ -557,82 +566,40 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			ctx.AccessLog.BytesOUT = 0
 			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return false, err
-		} else {
-			// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
-			respHeader.Set("Content-Type", "application/octet-stream")
-			respCode = 200
-			ctx.AccessLog.Status = "200 OK"
-			ctx.AccessLog.Endtime = time.Now()
-			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete.")+2)
-			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT + int64(len(ioBuf))
-			logging.AccesslogWrite(ctx.AccessLog)
-			ctx.AccessLog.Starttime = time.Now()
-			ctx.AccessLog.BytesIN = 0
-			ctx.AccessLog.BytesOUT = 0
 		}
-	} else {
-		logging.Printf("DEBUG", "doFtp: SessionID:%d Retrieving File/Dir Listing: \n", ctx.SessionNo)
-		err = ftpClient.Retrieve(r.URL.Path, buf)
-		ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
+
+		// Use data conection creation to find remote IP
+		rawConn, err := ftpClient.OpenRawConn()
 		if err != nil {
-			if err.(goftp.Error).Code() > 499 && err.(goftp.Error).Code() < 600 {
-				files, err := ftpClient.ReadDir(r.URL.Path)
-				if err != nil {
-					ctx.doError("Ftp", ErrRemoteConnect, err)
-					ctx.AccessLog.Status = "500 internal error"
-					ctx.AccessLog.Endtime = time.Now()
-					ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-					if err.(goftp.Error).Code() == 530 {
-						ctx.AccessLog.Status = "403 login failed"
-					}
-					ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-					ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
-					logging.AccesslogWrite(ctx.AccessLog)
-					ctx.AccessLog.Starttime = time.Now()
-					ctx.AccessLog.BytesIN = 0
-					ctx.AccessLog.BytesOUT = 0
-					logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
-					return false, err
-				} else {
-					hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
-					path := r.URL.Path
-					if hasSlash {
-						path = path[1:]
-					}
-					logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
-					logging.Printf("DEBUG", "doFtp: SessionID:%d FTP Directory Listing: ftp://%s/%s\n", ctx.SessionNo, host, path)
-					logging.Printf("DEBUG", "doFtp: SessionID:%d Parent Directory: ftp://%s/%s\n", ctx.SessionNo, host, filepath.Dir(path))
-					// Write the response body
-					fmt.Fprintf(buf, "Directory Listing: \n")
-					fmt.Fprintf(buf, "FTP Directory Listing: ftp://%s/%s\n", host, path)
-					fmt.Fprintf(buf, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
-					for _, file := range files {
-						if file.IsDir() {
-							logging.Printf("DEBUG", "doFtp: SessionID:%d %s dir %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), file.Name())
-							n, _ := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
-							ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
-						} else {
-							readableSize := formatSize(file.Size())
-							logging.Printf("DEBUG", "doFtp: SessionID:%d %s %s %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), readableSize, file.Name())
-							n, _ := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
-							ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
-						}
-					}
-					respCode = 200
-					respHeader.Set("Content-Type", "text/plain")
-					ctx.AccessLog.Status = "200 OK"
-					ctx.AccessLog.Endtime = time.Now()
-					ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-					ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-					ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
-					logging.AccesslogWrite(ctx.AccessLog)
-					ctx.AccessLog.Starttime = time.Now()
-					ctx.AccessLog.BytesIN = 0
-					ctx.AccessLog.BytesOUT = 0
-				}
-			} else {
+			logging.Printf("ERROR", "doFtp: SessionID:%d Error opening raw connection: %v\n", ctx.SessionNo, err)
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+			return false, err
+		}
+
+		// Prepare the data connection
+		dcGetter, err := rawConn.PrepareDataConn()
+		if err != nil {
+			logging.Printf("ERROR", "doFtp: SessionID:%d Error preparing data connection: %v\n", ctx.SessionNo, err)
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+			return false, err
+		}
+		dataConn, err := dcGetter()
+		if err != nil {
+			logging.Printf("ERROR", "doFtp: SessionID:%d Error getting data connection: %v\n", ctx.SessionNo, err)
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+			return false, err
+		}
+		dataConn.Close()
+		remoteAddr := dataConn.RemoteAddr().(*net.TCPAddr)
+		// Replace high port of data connection with control connection port
+		ctx.AccessLog.DestinationIP = remoteAddr.IP.String() + ":" + port
+
+		if strings.ToUpper(method) == "PUT" {
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Storing File: %s\n", ctx.SessionNo, r.URL.Path)
+			ioBuf, err := io.ReadAll(r.Body)
+			if err != nil {
+				logging.Printf("ERROR", "doFtp: SessionID:%d could not receive File %v\n", ctx.SessionNo, err)
+				logging.Printf("DEBUG", "doFtp: SessionID:%d Error writing file.\n", ctx.SessionNo)
 				ctx.doError("Ftp", ErrRemoteConnect, err)
 				ctx.AccessLog.Status = "500 internal error"
 				ctx.AccessLog.Endtime = time.Now()
@@ -646,56 +613,169 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 				return false, err
 			}
+			err = ftpClient.Store(r.URL.Path, bytes.NewBuffer(ioBuf))
+			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
+			if err != nil {
+				logging.Printf("ERROR", "doFtp: SessionID:%d Error writing file.\n", ctx.SessionNo)
+				ctx.doError("Ftp", ErrRemoteConnect, err)
+				ctx.AccessLog.Status = "500 internal error"
+				if err.(goftp.Error).Code() == 530 {
+					ctx.AccessLog.Status = "403 login failed"
+				}
+				ctx.AccessLog.Endtime = time.Now()
+				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
+				logging.AccesslogWrite(ctx.AccessLog)
+				ctx.AccessLog.Starttime = time.Now()
+				ctx.AccessLog.BytesIN = 0
+				ctx.AccessLog.BytesOUT = 0
+				logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+				return false, err
+			} else {
+				// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
+				respHeader.Set("Content-Type", "application/octet-stream")
+				respCode = 200
+				ctx.AccessLog.Status = "200 OK"
+				ctx.AccessLog.Endtime = time.Now()
+				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete.")+2)
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT + int64(len(ioBuf))
+				logging.AccesslogWrite(ctx.AccessLog)
+				ctx.AccessLog.Starttime = time.Now()
+				ctx.AccessLog.BytesIN = 0
+				ctx.AccessLog.BytesOUT = 0
+			}
 		} else {
-			// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
-			respHeader.Set("Content-Type", "application/octet-stream")
-			respCode = 200
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(buf.Len())
-			ctx.AccessLog.Status = "200 OK"
-			ctx.AccessLog.Endtime = time.Now()
-			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete.")+2)
-			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
-			logging.AccesslogWrite(ctx.AccessLog)
-			ctx.AccessLog.Starttime = time.Now()
-			ctx.AccessLog.BytesIN = 0
-			ctx.AccessLog.BytesOUT = 0
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Retrieving File/Dir Listing: \n", ctx.SessionNo)
+			err = ftpClient.Retrieve(r.URL.Path, buf)
+			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
+			if err != nil {
+				if err.(goftp.Error).Code() > 499 && err.(goftp.Error).Code() < 600 {
+					files, err := ftpClient.ReadDir(r.URL.Path)
+					if err != nil {
+						ctx.doError("Ftp", ErrRemoteConnect, err)
+						ctx.AccessLog.Status = "500 internal error"
+						ctx.AccessLog.Endtime = time.Now()
+						ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+						if err.(goftp.Error).Code() == 530 {
+							ctx.AccessLog.Status = "403 login failed"
+						}
+						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+						ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
+						logging.AccesslogWrite(ctx.AccessLog)
+						ctx.AccessLog.Starttime = time.Now()
+						ctx.AccessLog.BytesIN = 0
+						ctx.AccessLog.BytesOUT = 0
+						logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+						return false, err
+					} else {
+						hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
+						path := r.URL.Path
+						if hasSlash {
+							path = path[1:]
+						}
+						logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
+						logging.Printf("DEBUG", "doFtp: SessionID:%d FTP Directory Listing: ftp://%s/%s\n", ctx.SessionNo, host, path)
+						logging.Printf("DEBUG", "doFtp: SessionID:%d Parent Directory: ftp://%s/%s\n", ctx.SessionNo, host, filepath.Dir(path))
+						// Write the response body
+						fmt.Fprintf(buf, "Directory Listing: \n")
+						fmt.Fprintf(buf, "FTP Directory Listing: ftp://%s/%s\n", host, path)
+						fmt.Fprintf(buf, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
+						for _, file := range files {
+							if file.IsDir() {
+								logging.Printf("DEBUG", "doFtp: SessionID:%d %s dir %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), file.Name())
+								n, _ := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+								ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+							} else {
+								readableSize := formatSize(file.Size())
+								logging.Printf("DEBUG", "doFtp: SessionID:%d %s %s %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+								n, _ := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+								ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+							}
+						}
+						respCode = 200
+						respHeader.Set("Content-Type", "text/plain")
+						ctx.AccessLog.Status = "200 OK"
+						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+						ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
+					}
+				} else {
+					ctx.doError("Ftp", ErrRemoteConnect, err)
+					ctx.AccessLog.Status = "500 internal error"
+					ctx.AccessLog.Endtime = time.Now()
+					ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+					ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+					ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
+					logging.AccesslogWrite(ctx.AccessLog)
+					ctx.AccessLog.Starttime = time.Now()
+					ctx.AccessLog.BytesIN = 0
+					ctx.AccessLog.BytesOUT = 0
+					logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+					return false, err
+				}
+			} else {
+				// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
+				respHeader.Set("Content-Type", "application/octet-stream")
+				respCode = 200
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(buf.Len())
+				ctx.AccessLog.Status = "200 OK"
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete.")+2)
+				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
+			}
 		}
-	}
-	respHeader.Set("Connection", "close")
+		respHeader.Set("Connection", "close")
 
-	st := http.StatusText(respCode)
-	if st != "" {
-		st = " " + st
-	}
-	var bodyReadCloser io.ReadCloser
-	var bodyContentLength = int64(0)
-	body := buf.Bytes()
-	if body != nil {
-		bodyReadCloser = ioutil.NopCloser(bytes.NewBuffer(body))
-		bodyContentLength = int64(len(body))
-	}
-	resp := &http.Response{
-		Status:        fmt.Sprintf("%d%s", respCode, st),
-		StatusCode:    respCode,
-		Proto:         "HTTP/1.1",
-		ProtoMajor:    1,
-		ProtoMinor:    1,
-		Header:        respHeader,
-		Body:          bodyReadCloser,
-		ContentLength: bodyContentLength,
-	}
-
-	responseDump, err := httputil.DumpResponse(resp, true)
-	if err != nil {
-		logging.Printf("ERROR", "doFtp: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
-	} else {
-		dst := ctx.AccessLog.DestinationIP
-		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, responseDump)
+		st := http.StatusText(respCode)
+		if st != "" {
+			st = " " + st
+		}
+		var bodyReadCloser io.ReadCloser
+		var bodyContentLength = int64(0)
+		body := buf.Bytes()
+		if body != nil {
+			bodyReadCloser = ioutil.NopCloser(bytes.NewBuffer(body))
+			bodyContentLength = int64(len(body))
+		}
+		resp := &http.Response{
+			Status:        fmt.Sprintf("%d%s", respCode, st),
+			StatusCode:    respCode,
+			Proto:         "HTTP/1.1",
+			ProtoMajor:    1,
+			ProtoMinor:    1,
+			Header:        respHeader,
+			Body:          bodyReadCloser,
+			ContentLength: bodyContentLength,
+		}
+		responseDump, err := httputil.DumpResponse(resp, true)
 		if err != nil {
-			logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "doFtp: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
+		} else {
+			dst := ctx.AccessLog.DestinationIP
+			src := ctx.AccessLog.SourceIP
+			err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, responseDump)
+			if err != nil {
+				logging.Printf("ERROR", "doFtp: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
+			}
+		}
+
+		name, infected = viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, responseDump)
+		if infected {
+			if ctx.AccessLog.VirusList == "" {
+				ctx.AccessLog.VirusList = name
+			} else {
+				ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+			}
+			logging.Printf("INFO", "doFtp: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
+		}
+		if infected && readconfig.Config.Clamd.Block {
+			respCode = http.StatusForbidden
+			respHeader.Set("Content-Type", "application/octet-stream")
+			respHeader.Set("Connection", "close")
+			buf.WriteString("")
+			ctx.AccessLog.Status = "403 Virus found"
 		}
 	}
 
@@ -704,6 +784,14 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		ctx.doError("doFtp", ErrResponseWrite, err)
 	}
 	logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
+
+	ctx.AccessLog.Endtime = time.Now()
+	ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+	logging.AccesslogWrite(ctx.AccessLog)
+	ctx.AccessLog.Starttime = time.Now()
+	ctx.AccessLog.BytesIN = 0
+	ctx.AccessLog.BytesOUT = 0
+
 	return true, err
 }
 
@@ -786,14 +874,14 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	} else {
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
+		err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, requestDump)
 		if err != nil {
-			logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 		}
 	}
 	switch ctx.ConnectAction {
 	case ConnectProxy:
-		conn, err := ctx.Prx.Dial(ctx, "tcp", host)
+		conn, err := ctx.Dial(ctx, "tcp", host)
 		if err != nil {
 			hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
 			hijConn.Close()
@@ -807,9 +895,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			ctx.AccessLog.BytesOUT = 0
 			src := ctx.AccessLog.ProxyIP
 			dst := ctx.AccessLog.SourceIP
-			err := protocol.WriteWireshark(false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			err := protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
 			if err != nil {
-				logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 			}
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
@@ -831,18 +919,18 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			}
 			src := ctx.AccessLog.ProxyIP
 			dst := ctx.AccessLog.SourceIP
-			err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
 			if err != nil {
-				logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 			}
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
 		src := ctx.AccessLog.ProxyIP
 		dst := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 200 OK\r\n\r\n"))
 		if err != nil {
-			logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 		}
 		if ctx.AccessLog.Status == "" {
 			// Proxy Dial sets status if a proxy is used
@@ -851,6 +939,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		var FirstPacket bool = true
 		var FirstPacketResponse bool = true
 		var wg sync.WaitGroup
+
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -864,7 +953,11 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				remoteConn.Close()
 				if !isConnectionClosed(err) {
 					// ctx.doError("Connect", ErrRequestRead, err)
-					ctx.AccessLog.Status = "500 " + err.Error()
+					if strings.Contains(strings.ToLower(err.Error()), "virus") {
+						ctx.AccessLog.Status = "403 " + err.Error()
+					} else {
+						ctx.AccessLog.Status = "500 " + err.Error()
+					}
 				}
 			}()
 			//
@@ -877,16 +970,28 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					panic(err)
 				}
 				if n != 0 {
-					_, err = remoteConn.Write(buf[:n])
-					if err != nil {
-						panic(err)
+					name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, buf[:n])
+					if infected {
+						if ctx.AccessLog.VirusList == "" {
+							ctx.AccessLog.VirusList = name
+						} else {
+							ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+						}
+						logging.Printf("INFO", "doConnect: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
+					}
+					if !infected || (infected && !readconfig.Config.Clamd.Block) {
+						_, err = remoteConn.Write(buf[:n])
+						if err != nil {
+							panic(err)
+						}
 					}
 					dst := ctx.AccessLog.ProxyIP
 					src := ctx.AccessLog.SourceIP
-					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
+					err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, buf[:n])
 					if err != nil {
-						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 					}
+
 					protocol, description := protocol.AnalyseFirstPacket(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
 						if protocol != "TLS" {
@@ -908,22 +1013,34 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 						}
 					}
 					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
-						logging.Printf("INFO", "doConnect: SessionID:%d Client requests websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
-						ctx.Websocket = true
+						logging.Printf("INFO", "doConnect: SessionID:%d Client requested websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
+						ctx.WebsocketState.Websocket = true
 					} else {
-						ctx.Websocket = false
+						ctx.WebsocketState.Websocket = false
+					}
+					if infected && readconfig.Config.Clamd.Block {
+						ctx.AccessLog.Status = "403 Virus found"
+						panic(errors.New("Virus found"))
 					}
 				}
 				FirstPacket = false
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
 			}
-			if ctx.Websocket {
-				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, readconfig.Config.WebSocket.Timeout)
+			if ctx.WebsocketState.Websocket {
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for client connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, ctx.ReadTimeout)
 			}
 
 			for {
-				hijConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-				n, err := hijConn.Read(buf)
+				var err error
+				var n int
+				buf := make([]byte, 65535)
+				mbuf := make([]byte, 65535)
+				if ctx.WebsocketState.Websocket {
+					n, err = protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
+				} else {
+					hijConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					n, err = hijConn.Read(mbuf)
+				}
 				if err != nil {
 					if err == io.EOF {
 						break
@@ -931,15 +1048,34 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					panic(err)
 				}
 				if n != 0 {
-					_, err = remoteConn.Write(buf[:n])
-					if err != nil {
-						panic(err)
+					name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, buf[:n])
+					if infected {
+						if ctx.AccessLog.VirusList == "" {
+							ctx.AccessLog.VirusList = name
+						} else {
+							ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+						}
+						logging.Printf("INFO", "doConnect: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
+					}
+					if !infected || (infected && !readconfig.Config.Clamd.Block) {
+						_, err = remoteConn.Write(mbuf[:n])
+						if err != nil {
+							panic(err)
+						}
 					}
 					dst := ctx.AccessLog.ProxyIP
 					src := ctx.AccessLog.SourceIP
-					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
+					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, buf[:n])
+					} else {
+						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, mbuf[:n])
+					}
 					if err != nil {
-						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
+					if infected && readconfig.Config.Clamd.Block {
+						ctx.AccessLog.Status = "403 Virus found"
+						panic(errors.New("Virus found"))
 					}
 				}
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
@@ -965,7 +1101,11 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					//ctx.doError("Connect", ErrResponseWrite, err)
-					ctx.AccessLog.Status = "500 " + err.Error()
+					if strings.Contains(strings.ToLower(err.Error()), "virus") {
+						ctx.AccessLog.Status = "403 " + err.Error()
+					} else {
+						ctx.AccessLog.Status = "500 " + err.Error()
+					}
 				}
 			}()
 			//
@@ -978,15 +1118,26 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					panic(err)
 				}
 				if n != 0 {
-					_, err = hijConn.Write(buf[:n])
-					if err != nil {
-						panic(err)
+					name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, buf[:n])
+					if infected {
+						if ctx.AccessLog.VirusList == "" {
+							ctx.AccessLog.VirusList = name
+						} else {
+							ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+						}
+						logging.Printf("INFO", "doConnect: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
+					}
+					if !infected || (infected && !readconfig.Config.Clamd.Block) {
+						_, err = hijConn.Write(buf[:n])
+						if err != nil {
+							panic(err)
+						}
 					}
 					src := ctx.AccessLog.ProxyIP
 					dst := ctx.AccessLog.SourceIP
-					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
+					err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, buf[:n])
 					if err != nil {
-						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 					}
 					protocol, description := protocol.AnalyseFirstPacketResponse(ctx.SessionNo, buf[:n])
 					if protocol != "Unknown" {
@@ -1024,20 +1175,32 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
 						logging.Printf("INFO", "doConnect: SessionID:%d Server accepted websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
-						ctx.Websocket = true
+						ctx.WebsocketState.Websocket = true
 					} else {
-						ctx.Websocket = false
+						ctx.WebsocketState.Websocket = false
+					}
+					if infected && readconfig.Config.Clamd.Block {
+						ctx.AccessLog.Status = "403 Virus found"
+						panic(errors.New("Virus found"))
 					}
 				}
 
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 			}
-			if ctx.Websocket {
-				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, readconfig.Config.WebSocket.Timeout)
+			if ctx.WebsocketState.Websocket {
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Wait for server connection disconnect or timeout server connections after %d seconds\n", ctx.SessionNo, ctx.ReadTimeout)
 			}
 			for {
-				remoteConn.SetReadDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-				n, err := remoteConn.Read(buf)
+				var err error
+				var n int
+				buf := make([]byte, 65535)
+				mbuf := make([]byte, 65535)
+				if ctx.WebsocketState.Websocket {
+					n, err = protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
+				} else {
+					remoteConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					n, err = remoteConn.Read(mbuf)
+				}
 				if err != nil {
 					if err == io.EOF {
 						break
@@ -1045,15 +1208,35 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					panic(err)
 				}
 				if n != 0 {
-					_, err = hijConn.Write(buf[:n])
-					if err != nil {
-						panic(err)
+					name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, buf[:n])
+					if infected {
+						if ctx.AccessLog.VirusList == "" {
+							ctx.AccessLog.VirusList = name
+						} else {
+							ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+						}
+						logging.Printf("INFO", "doConnect: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
+					}
+					if !infected || (infected && !readconfig.Config.Clamd.Block) {
+						_, err = hijConn.Write(mbuf[:n])
+						if err != nil {
+							panic(err)
+						}
 					}
 					src := ctx.AccessLog.ProxyIP
 					dst := ctx.AccessLog.SourceIP
-					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
+					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, buf[:n])
+					} else {
+						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, mbuf[:n])
+					}
 					if err != nil {
-						logging.Printf("ERROR", "doConnect: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
+					}
+
+					if infected && readconfig.Config.Clamd.Block {
+						ctx.AccessLog.Status = "403 Virus found"
+						panic(errors.New("Virus found"))
 					}
 				}
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
@@ -1067,8 +1250,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			}
 		}()
 		wg.Wait()
-		logging.Printf("INFO", "doConnect: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.Websocket)
-		ctx.Websocket = false
+
+		logging.Printf("INFO", "doConnect: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
+		ctx.WebsocketState.Websocket = false
 		hijConn.Close()
 		remoteConn.Close()
 		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
@@ -1112,7 +1296,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, []byte("HTTP/1.1 200 OK\r\n\r\n"))
 		if err != nil {
 			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 		}
@@ -1152,12 +1336,10 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	const maxPayloadLength int = 16 * 65535
 
-	if ctx.Websocket {
+	if ctx.WebsocketState.Websocket {
 		// Not anymore HTTP Request / Response
 		hijConn := ctx.hijTLSConn
-		remoteConn := ctx.WebsocketConn
-		hijConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-		remoteConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
+		remoteConn := ctx.WebsocketState.WebsocketConn
 		var hijRead bool = true
 		var hijWrite bool = true
 		var remoteRead bool = true
@@ -1179,155 +1361,58 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Client connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					// ctx.doError("Connect", ErrRequestRead, err)
-					ctx.AccessLog.Status = "500 " + err.Error()
+					if strings.Contains(strings.ToLower(err.Error()), "virus") {
+						ctx.AccessLog.Status = "403 " + err.Error()
+					} else {
+						ctx.AccessLog.Status = "500 " + err.Error()
+					}
 				}
 			}()
 			//
 			// Websocket Request
 			//
-			buf := make([]byte, 65535)
-			payload := make([]byte, maxPayloadLength)
-			payloadLen := 0
-			dataLen := 0
-			var fin bool
-			var opcode byte
-			var masked bool
-			var maskKey [4]byte
-			var offset int
 
 			for {
-				hijConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-				n, err := hijConn.Read(buf)
+				buf := make([]byte, 65535)
+				mbuf := make([]byte, 65535)
+				n, err := protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				if err != nil {
-					logging.Printf("DEBUG", "doMitm: SessionID:%d Client connection after read: %v\n", ctx.SessionNo, err)
 					if err == io.EOF {
 						break
 					}
 					panic(err)
 				}
+
+				name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, buf[:n])
+				if infected {
+					if ctx.AccessLog.VirusList == "" {
+						ctx.AccessLog.VirusList = name
+					} else {
+						ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+					}
+					logging.Printf("INFO", "doMitm: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
+					if readconfig.Config.Clamd.Block {
+						ctx.AccessLog.Status = "403 Virus found"
+						panic(errors.New("Virus found"))
+					}
+				}
+
 				if n != 0 {
-					remoteConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-					_, err = remoteConn.Write(buf[:n])
+					remoteConn.SetDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					_, err := remoteConn.Write(mbuf[:n])
 					if err != nil {
 						panic(err)
 					}
 
-					if payloadLen == 0 {
-						fin = buf[0]&0x80 != 0
-						opcode = buf[0] & 0x0F
-						masked = buf[1]&0x80 != 0
-						payloadLen = int(buf[1] & 0x7F)
-						offset = 2
-
-						if payloadLen == 126 {
-							if n < offset+2 {
-								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+2\n", ctx.SessionNo, n)
-								break
-							}
-							payloadLen = int(binary.BigEndian.Uint16(buf[offset : offset+2]))
-							offset += 2
-						} else if payloadLen == 127 {
-							if n < offset+8 {
-								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+8\n", ctx.SessionNo, n)
-								break
-							}
-							payloadLen = int(binary.BigEndian.Uint64(buf[offset : offset+8]))
-							offset += 8
-						}
-
-						if payloadLen > maxPayloadLength {
-							logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too large to convert: %d\n", ctx.SessionNo, payloadLen)
-							break
-						}
-
-						if masked {
-							if n < offset+4 {
-								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+4\n", ctx.SessionNo, n)
-								break
-							}
-							copy(maskKey[:], buf[offset:offset+4])
-							offset += 4
-						}
-
-						skip := false
-						logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket Payload length: %d Masked bit: %t FIN bit: %t\n", ctx.SessionNo, payloadLen, masked, fin)
-						switch opcode {
-						case 0x1: // Text frame
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string\n", ctx.SessionNo)
-						case 0x2: // Binary frame
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket binary\n", ctx.SessionNo)
-						case 0x8: // Connection closed
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection closed\n", ctx.SessionNo)
-							skip = true
-							break
-						case 0x9: // Ping
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection ping\n", ctx.SessionNo)
-							skip = true
-						case 0xA: // Pong
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection pong\n", ctx.SessionNo)
-							skip = true
-						default:
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket unknown type: %d\n", ctx.SessionNo, opcode)
-							skip = true
-						}
-						if !skip {
-							if n < offset+payloadLen {
-								copy(payload, buf[offset:n])
-								dataLen = n - offset
-							} else {
-
-								copy(payload, buf[offset:offset+payloadLen])
-								if masked {
-									for i := 0; i < payloadLen; i++ {
-										payload[i] ^= maskKey[i%4]
-									}
-								}
-
-								switch opcode {
-								case 0x1: // Text frame
-									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
-								case 0x2: // Binary frame
-									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
-								}
-
-								payloadLen = 0
-								dataLen = 0
-							}
-						}
-					} else {
-						if n < payloadLen-dataLen {
-							copy(payload[dataLen:], buf[:n])
-							dataLen = dataLen + n
-						} else {
-							copy(payload[dataLen:], buf[:payloadLen-dataLen])
-
-							if masked {
-								for i := 0; i < payloadLen; i++ {
-									payload[i] ^= maskKey[i%4]
-								}
-							}
-
-							if n > payloadLen-dataLen {
-								logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket data contains second payload %d bytes\n", ctx.SessionNo, payloadLen-dataLen-n)
-							}
-
-							switch opcode {
-							case 0x1: // Text frame
-								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload[:payloadLen])
-							case 0x2: // Binary frame
-								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
-							}
-
-							payloadLen = 0
-							dataLen = 0
-						}
-					}
-
 					dst := ctx.AccessLog.ProxyIP
 					src := ctx.AccessLog.SourceIP
-					err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, buf[:n])
+					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, buf[:n])
+					} else {
+						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, mbuf[:n])
+					}
 					if err != nil {
-						logging.Printf("ERROR", "doMitm: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doMitm: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 					}
 				}
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
@@ -1337,12 +1422,12 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			}
 			remoteWrite = false
 			if !remoteRead {
-				logging.Printf("ERROR", "doMitm: SessionID:%d remote close write\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d remote close write\n", ctx.SessionNo)
 				remoteConn.Close()
 			}
 			hijRead = false
 			if !hijWrite {
-				logging.Printf("ERROR", "doMitm: SessionID:%d hij close read\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d hij close read\n", ctx.SessionNo)
 				hijConn.Close()
 			}
 		}()
@@ -1360,155 +1445,58 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					// ctx.doError("Connect", ErrResponseWrite, err)
-					ctx.AccessLog.Status = "500 " + err.Error()
+					if strings.Contains(strings.ToLower(err.Error()), "virus") {
+						ctx.AccessLog.Status = "403 " + err.Error()
+					} else {
+						ctx.AccessLog.Status = "500 " + err.Error()
+					}
 				}
 			}()
 			//
 			// Websocket Response
 			//
-			buf := make([]byte, 65535)
-			payload := make([]byte, maxPayloadLength)
-			payloadLen := 0
-			dataLen := 0
-			var fin bool
-			var opcode byte
-			var masked bool
-			var maskKey [4]byte
-			var offset int
 
 			for {
-				remoteConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-				n, err := remoteConn.Read(buf)
+				buf := make([]byte, 65535)
+				mbuf := make([]byte, 65535)
+				n, err := protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				if err != nil {
-					logging.Printf("DEBUG", "doMitm: SessionID:%d Server connection after read: %v\n", ctx.SessionNo, err)
 					if err == io.EOF {
 						break
 					}
 					panic(err)
 				}
+
+				name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, buf[:n])
+				if infected {
+					if ctx.AccessLog.VirusList == "" {
+						ctx.AccessLog.VirusList = name
+					} else {
+						ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+					}
+					logging.Printf("INFO", "doMitm: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
+					if readconfig.Config.Clamd.Block {
+						ctx.AccessLog.Status = "403 Virus found"
+						panic(errors.New("Virus found"))
+					}
+				}
+
 				if n != 0 {
-					hijConn.SetDeadline(time.Now().Add(time.Duration(readconfig.Config.WebSocket.Timeout) * time.Second))
-					_, err = hijConn.Write(buf[:n])
+					hijConn.SetDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					_, err = hijConn.Write(mbuf[:n])
 					if err != nil {
 						panic(err)
 					}
 
-					if payloadLen == 0 {
-						fin = buf[0]&0x80 != 0
-						opcode = buf[0] & 0x0F
-						masked = buf[1]&0x80 != 0
-						payloadLen = int(buf[1] & 0x7F)
-						offset = 2
-
-						if payloadLen == 126 {
-							if n < offset+2 {
-								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+2\n", ctx.SessionNo, n)
-								break
-							}
-							payloadLen = int(binary.BigEndian.Uint16(buf[offset : offset+2]))
-							offset += 2
-						} else if payloadLen == 127 {
-							if n < offset+8 {
-								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+8\n", ctx.SessionNo, n)
-								break
-							}
-							payloadLen = int(binary.BigEndian.Uint64(buf[offset : offset+8]))
-							offset += 8
-						}
-
-						if payloadLen > maxPayloadLength {
-							logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too large to convert: %d\n", ctx.SessionNo, payloadLen)
-							break
-						}
-
-						if masked {
-							if n < offset+4 {
-								logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too few data: %d<offset+4\n", ctx.SessionNo, n)
-								break
-							}
-							copy(maskKey[:], buf[offset:offset+4])
-							offset += 4
-						}
-
-						skip := false
-						logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket Payload length: %d Masked bit: %t FIN bit: %t\n", ctx.SessionNo, payloadLen, masked, fin)
-						switch opcode {
-						case 0x1: // Text frame
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string\n", ctx.SessionNo)
-						case 0x2: // Binary frame
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket binary\n", ctx.SessionNo)
-						case 0x8: // Connection closed
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection closed\n", ctx.SessionNo)
-							skip = true
-							break
-						case 0x9: // Ping
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection ping\n", ctx.SessionNo)
-							skip = true
-						case 0xA: // Pong
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket connection pong\n", ctx.SessionNo)
-							skip = true
-						default:
-							logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket unknown type: %d\n", ctx.SessionNo, opcode)
-							skip = true
-						}
-						if !skip {
-							if n < offset+payloadLen {
-								copy(payload, buf[offset:n])
-								dataLen = n - offset
-							} else {
-
-								copy(payload, buf[offset:offset+payloadLen])
-								if masked {
-									for i := 0; i < payloadLen; i++ {
-										payload[i] ^= maskKey[i%4]
-									}
-								}
-
-								switch opcode {
-								case 0x1: // Text frame
-									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload)
-								case 0x2: // Binary frame
-									//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
-								}
-
-								payloadLen = 0
-								dataLen = 0
-							}
-						}
-					} else {
-						if n < payloadLen-dataLen {
-							copy(payload[dataLen:], buf[:n])
-							dataLen = dataLen + n
-						} else {
-							copy(payload[dataLen:], buf[:payloadLen-dataLen])
-
-							if masked {
-								for i := 0; i < payloadLen; i++ {
-									payload[i] ^= maskKey[i%4]
-								}
-							}
-
-							if n > payloadLen-dataLen {
-								logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket data contains second payload %d bytes\n", ctx.SessionNo, payloadLen-dataLen-n)
-							}
-
-							switch opcode {
-							case 0x1: // Text frame
-								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, payload[:payloadLen])
-							case 0x2: // Binary frame
-								//logging.Printf("DEBUG", "doMitm: SessionID:%d Websocket string:\n%s\n\n", ctx.SessionNo, string(payload[:payloadLen]))
-							}
-
-							payloadLen = 0
-							dataLen = 0
-						}
-					}
-
 					src := ctx.AccessLog.ProxyIP
 					dst := ctx.AccessLog.SourceIP
-					err = protocol.WriteWireshark(false, ctx.SessionNo, src, dst, buf[:n])
+					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, buf[:n])
+					} else {
+						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, mbuf[:n])
+					}
 					if err != nil {
-						logging.Printf("ERROR", "doMitm: SessionID:%d Could not not write to Wireshark %v\n", ctx.SessionNo, err)
+						logging.Printf("ERROR", "doMitm: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 					}
 				}
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
@@ -1518,18 +1506,18 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			}
 			remoteRead = false
 			if !remoteWrite {
-				logging.Printf("ERROR", "doMitm: SessionID:%d remote close read\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d remote close read\n", ctx.SessionNo)
 				remoteConn.Close()
 			}
 			hijWrite = false
 			if !hijRead {
-				logging.Printf("ERROR", "doMitm: SessionID:%d hij close write\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d hij close write\n", ctx.SessionNo)
 				hijConn.Close()
 			}
 		}()
 
 		wg.Wait()
-		logging.Printf("INFO", "doMitm: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.Websocket)
+		logging.Printf("INFO", "doMitm: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
 		hijConn.Close()
 		remoteConn.Close()
 		logging.Printf("DEBUG", "doMitm: SessionID:%d Connection closed.\n", ctx.SessionNo)
@@ -1587,6 +1575,11 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	r.RequestURI = r.URL.String()
 	logging.Printf("DEBUG", "doRequest: SessionID:%d New Connection to %s\n", ctx.SessionNo, r.URL.Host)
 
+	upgrade := r.Header.Get("Upgrade")
+	if upgrade == "websocket" {
+		logging.Printf("INFO", "doRequest: SessionID:%d Client requested websocket upgrade: Upgrade websocket\n", ctx.SessionNo)
+	}
+
 	requestDump, err := httputil.DumpRequestOut(r, true)
 	if err != nil {
 		logging.Printf("ERROR", "doRequest: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
@@ -1594,22 +1587,42 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	}
 	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(true, ctx.SessionNo, src, dst, requestDump)
+	err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, requestDump)
 	if err != nil {
 		logging.Printf("ERROR", "doRequest: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 	}
 
-	if ctx.Prx.OnRequest == nil {
-		logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, nil
+	name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, requestDump)
+	if infected {
+		if ctx.AccessLog.VirusList == "" {
+			ctx.AccessLog.VirusList = name
+		} else {
+			ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+		}
+		logging.Printf("INFO", "doRequest: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
 	}
-	resp := ctx.onRequest(r)
-	if resp == nil {
-		logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
-		return false, nil
-	}
-	if r.Body != nil {
-		defer r.Body.Close()
+	var resp *http.Response
+	if infected && readconfig.Config.Clamd.Block {
+		resp = &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Virus found",
+			Header:     make(http.Header),
+			Body:       http.NoBody, // You can set a custom body if needed
+		}
+	} else {
+
+		if ctx.Prx.OnRequest == nil {
+			logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
+			return false, nil
+		}
+		resp = ctx.onRequest(r)
+		if resp == nil {
+			logging.Printf("DEBUG", "doRequest: SessionID:%d Connection closed.\n", ctx.SessionNo)
+			return false, nil
+		}
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
 	}
 	resp.Request = r
 	resp.TransferEncoding = nil
@@ -1644,28 +1657,29 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			host = r.Host
 		}
 		logging.Printf("DEBUG", "doResponse: SessionID:%d connection upgrade: %s\n", ctx.SessionNo, upgrade)
-		ctx.WebsocketConn, err = ctx.Prx.Dial(ctx, "tcp", host)
+		ctx.WebsocketState.WebsocketConn, err = ctx.Dial(ctx, "tcp", host)
 		if err != nil {
 			logging.Printf("ERROR", "doResponse: SessionID:%d Connection to host %s failed: %v\n", ctx.SessionNo, host, err)
 			return err
 		} else {
 			logging.Printf("DEBUG", "doResponse: SessionID:%d Connection to host %s succeded\n", ctx.SessionNo, host)
-			err1 := r.Write(ctx.WebsocketConn)
+			err1 := r.Write(ctx.WebsocketState.WebsocketConn)
 			if err1 != nil {
 				logging.Printf("ERROR", "doResponse: SessionID:%d Could not send request to host: %v\n", ctx.SessionNo, host, err)
 			}
-			reader := bufio.NewReader(ctx.WebsocketConn)
+			reader := bufio.NewReader(ctx.WebsocketState.WebsocketConn)
 			resp, err = http.ReadResponse(reader, r)
 			if err != nil {
 				logging.Printf("ERROR", "doResponse: SessionID:%d Could not read response from  host: %v\n", ctx.SessionNo, err)
 				return err
 			}
 		}
-		ctx.Websocket = true
+		logging.Printf("INFO", "doResponse: SessionID:%d Server accepted websocket upgrade: Upgrade to websocket\n", ctx.SessionNo)
+		ctx.WebsocketState.Websocket = true
 		ctx.Prx.MitmChunked = false
 		bodySize = 0
 	} else {
-		resp, err = ctx.Prx.Rt.RoundTrip(r)
+		resp, err = ctx.Rt.RoundTrip(r)
 		bodySize = r.ContentLength
 	}
 	headerSize := int64(0)
@@ -1714,18 +1728,36 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	}
 	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
-	err = protocol.WriteWireshark(false, ctx.SessionNo, dst, src, responseDump)
+	err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, responseDump)
 	if err != nil {
 		logging.Printf("ERROR", "doResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 	}
 
-	if ctx.Prx.OnResponse != nil {
-		ctx.onResponse(r, resp)
+	name, infected := viruscheck.HasVirus(ctx.SessionNo, ctx.Prx.ClamdStruct, responseDump)
+	if infected {
+		if ctx.AccessLog.VirusList == "" {
+			ctx.AccessLog.VirusList = name
+		} else {
+			ctx.AccessLog.VirusList = ctx.AccessLog.VirusList + ":" + name
+		}
+		logging.Printf("INFO", "doResponse: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
 	}
-	resp.Request = r
-	resp.TransferEncoding = nil
-	if ctx.ConnectAction == ConnectMitm && ctx.Prx.MitmChunked {
-		resp.TransferEncoding = []string{"chunked"}
+	if infected && readconfig.Config.Clamd.Block {
+		resp = &http.Response{
+			StatusCode: http.StatusForbidden,
+			Status:     "403 Virus found",
+			Header:     make(http.Header),
+			Body:       http.NoBody, // You can set a custom body if needed
+		}
+	} else {
+		if ctx.Prx.OnResponse != nil {
+			ctx.onResponse(r, resp)
+		}
+		resp.Request = r
+		resp.TransferEncoding = nil
+		if ctx.ConnectAction == ConnectMitm && ctx.Prx.MitmChunked {
+			resp.TransferEncoding = []string{"chunked"}
+		}
 	}
 	err = ServeResponse(w, resp)
 	if err != nil && !isConnectionClosed(err) {
