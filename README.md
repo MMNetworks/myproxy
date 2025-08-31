@@ -191,6 +191,7 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>clamd has also a setting to block virus infected traffic or only report and a setting to block when clamd is unavailable</li> 
 <ul>
 </ul>
+</ul>
 <li>websocket:</li>
 <ul>
 <li>settings to control websocket usage. The include/exclude list can be used to enable websocket per client and URL with a timeout. A timeout of 0 basically disables websockets. A default timeout can be set using the timeout setting. Websocket conenction will also be inspected when MITM is set.</li>
