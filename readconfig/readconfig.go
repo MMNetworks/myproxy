@@ -70,9 +70,9 @@ type Clamd struct {
 	Enable       bool   `yaml:"enable"`
 	Block        bool   `yaml:"block"`
 	BlockOnError bool   `yaml:"blockonerror"`
-	Cert         string `yaml:"cert"`
-	Key          string `yaml:"key"`
-	CA           string `yaml:"rootca"`
+	Certfile     string `yaml:"certfile"`
+	Keyfile      string `yaml:"keyfile"`
+	CAfile       string `yaml:"rootcafile"`
 	Connection   string `yaml:"connection"`
 }
 type Proxy struct {
@@ -479,31 +479,31 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 	prefix := "tls:"
 	if strings.HasPrefix(configOut.Clamd.Connection, prefix) {
-		if configOut.Clamd.Cert == "" || configOut.Clamd.Key == "" {
+		if configOut.Clamd.Certfile == "" || configOut.Clamd.Keyfile == "" {
 			return nil, errors.New("Missing Client Cert or Key to authenticate")
 		}
 	}
 
-	if configOut.Clamd.Cert != "" {
-		certFilepath, err := filepath.Abs(configOut.Clamd.Cert)
+	if configOut.Clamd.Certfile != "" {
+		certFilepath, err := filepath.Abs(configOut.Clamd.Certfile)
 		if err != nil {
 			return nil, err
 		}
-		configOut.Clamd.Cert = certFilepath
+		configOut.Clamd.Certfile = certFilepath
 	}
-	if configOut.Clamd.Key != "" {
-		keyFilepath, err := filepath.Abs(configOut.Clamd.Key)
+	if configOut.Clamd.Keyfile != "" {
+		keyFilepath, err := filepath.Abs(configOut.Clamd.Keyfile)
 		if err != nil {
 			return nil, err
 		}
-		configOut.Clamd.Key = keyFilepath
+		configOut.Clamd.Keyfile = keyFilepath
 	}
-	if configOut.Clamd.CA != "" && configOut.Clamd.CA != "insecure" {
-		caFilepath, err := filepath.Abs(configOut.Clamd.CA)
+	if configOut.Clamd.CAfile != "" && configOut.Clamd.CAfile != "insecure" {
+		caFilepath, err := filepath.Abs(configOut.Clamd.CAfile)
 		if err != nil {
 			return nil, err
 		}
-		configOut.Clamd.CA = caFilepath
+		configOut.Clamd.CAfile = caFilepath
 	}
 	if configOut.FTP.Username == "" {
 		configOut.FTP.Username = "anonymous"
