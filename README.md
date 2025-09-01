@@ -231,9 +231,9 @@ clamd:
   block: true
   blockonerror: true
   connection: "unix:/var/run/clamav/clamd.ctl"
-  cert: "cliencert.pem"
-  key: "clienkey.pem"
-  rootca: "rootca.pem"
+  certfile: "cliencert.pem"
+  keyfile: "clienkey.pem"
+  rootcafile: "rootca.pem"
 logging:
   level: "debug"
   file: "log_9080"

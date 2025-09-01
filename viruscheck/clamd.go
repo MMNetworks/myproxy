@@ -62,18 +62,18 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 		serverAddr := readconfig.Config.Clamd.Connection[start : end-1]
 
 		var rootCAs *x509.CertPool
-		if readconfig.Config.Clamd.CA != "insecure" {
+		if readconfig.Config.Clamd.CAfile != "insecure" {
 			// Load system roots + optional CA bundle
 			rootCAs, _ = x509.SystemCertPool()
-			if caPem, err := os.ReadFile(readconfig.Config.Clamd.CA); err == nil {
+			if caPem, err := os.ReadFile(readconfig.Config.Clamd.CAfile); err == nil {
 				rootCAs.AppendCertsFromPEM(caPem)
 			}
 		}
 
 		// Client cert for mTLS
-		cert, err := tls.LoadX509KeyPair(readconfig.Config.Clamd.Cert, readconfig.Config.Clamd.Key)
+		cert, err := tls.LoadX509KeyPair(readconfig.Config.Clamd.Certfile, readconfig.Config.Clamd.Keyfile)
 		if err != nil {
-			logging.Printf("ERROR", "SetupClamd: SessionID:%d Could not read client cert or key file %s/%s: %v\n", sessionNo, readconfig.Config.Clamd.Cert, readconfig.Config.Clamd.Key, err)
+			logging.Printf("ERROR", "SetupClamd: SessionID:%d Could not read client cert or key file %s/%s: %v\n", sessionNo, readconfig.Config.Clamd.Certfile, readconfig.Config.Clamd.Keyfile, err)
 			return nil, err
 		}
 
@@ -88,7 +88,7 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 			serverName = serverNames[0]
 		}
 		var tlsConf *tls.Config
-		if readconfig.Config.Clamd.CA == "insecure" {
+		if readconfig.Config.Clamd.CAfile == "insecure" {
 			// Replace the TLSClientConfig
 			tlsConf = &tls.Config{
 				InsecureSkipVerify: true, // Skip certificate verification
