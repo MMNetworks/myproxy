@@ -281,7 +281,7 @@ proxy:
   KRBCache: "/tmp/krb5cc_testuser"
   KRBConfig: "/etc/krb5.conf"
   BasicUser: "TestUser"
-  BasicPass: "BetterProvidedOnConsole"
+  BasicPass: "BetterProvidedOnCLI"
   LocalBasicUser: "TestUser"
   LocalBasicHash: "eb97d409396a3e5392936dad92b909da6f08d8c121a45e1f088fe9768b0c0339"
 ```
