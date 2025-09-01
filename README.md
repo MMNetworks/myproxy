@@ -274,10 +274,10 @@ proxy:
     - basic
   NTLMDomain: "TEST"
   NTLMUser: "testuser"
-  NTLMPass: "BetterProvidedOnConsole"
+  NTLMPass: "BetterProvidedOnCLI"
   KRBDomain: "TEST.COM"
   KRBMUser: "testuser"
-  KRBPass: "BetterProvidedOnConsole"
+  KRBPass: "BetterProvidedOnCLI"
   KRBCache: "/tmp/krb5cc_testuser"
   KRBConfig: "/etc/krb5.conf"
   BasicUser: "TestUser"
