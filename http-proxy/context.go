@@ -222,8 +222,8 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type ftpLogWriter struct {
-	writer    io.Writer
-	bytes     *bytesCounter
+	writer io.Writer
+	bytes  *bytesCounter
 	sessionNo int64
 }
 
@@ -240,7 +240,7 @@ func (w ftpLogWriter) Write(p []byte) (n int, err error) {
 	for _, line := range lines {
 		str := string(line)
 		if str != "" {
-			logging.Printf("DEBUG", "ftpLogWriter: SessionID:%d logstring: %s\n", w.sessionNo, str)
+			logging.Printf("DEBUG", "ftpLogWriter: SessionID:%d logstring: %s\n", w.sessionNo,str)
 		}
 	}
 	sendIndex := strings.Index(logString, "sending command ")
@@ -1038,7 +1038,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				if ctx.WebsocketState.Websocket {
 					n, err = protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
-					hijConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					if ctx.ReadTimeout > 0 {
+						hijConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					}
 					n, err = hijConn.Read(mbuf)
 				}
 				if err != nil {
@@ -1198,7 +1200,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				if ctx.WebsocketState.Websocket {
 					n, err = protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
-					remoteConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					if ctx.ReadTimeout > 0 {
+						remoteConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					}
 					n, err = remoteConn.Read(mbuf)
 				}
 				if err != nil {
@@ -1316,7 +1320,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return
 		}
-		ctx.hijTLSConn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		if ctx.ReadTimeout > 0 {
+			ctx.hijTLSConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+		}
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
 		b = false
 	default:
