@@ -52,6 +52,10 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 			KeepAlive: keepAlive * time.Second,
 		}
 		conn, err = newDial.Dial("tcp", proxy)
+		if err != nil {
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Error dialing to proxy: %s %v\n", ctx.SessionNo, proxy, err)
+			return nil, err
+		}
 		logging.Printf("DEBUG", "PrxDial: SessionID:%d After Dial: %v\n", ctx.SessionNo, c2s(conn))
 		// Overwrite upstream Proxy
 		ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},

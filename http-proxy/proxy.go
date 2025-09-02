@@ -121,6 +121,7 @@ func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 			},
 			ForceAttemptHTTP2:     true,
 			MaxIdleConns:          100,
+			ResponseHeaderTimeout: 3 * time.Second,
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
@@ -173,12 +174,13 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 // ServeHTTP implements http.Handler.
 func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	ctx := &Context{Prx: prx,
-		SessionNo:      atomic.AddInt64(&prx.SessionNo, 1),
-		TCPState:       &protocol.TCPStruct{},
-		WebsocketState: &protocol.WSStruct{},
-		Rt:             prx.Rt,
-		Dial:           prx.Dial}
+	ctx := &Context{Prx: prx, 
+			SessionNo: atomic.AddInt64(&prx.SessionNo, 1), 
+			TCPState: &protocol.TCPStruct{}, 
+			WebsocketState: &protocol.WSStruct{}, 
+			Rt: prx.Rt, 
+			Dial: prx.Dial}
+	
 
 	defer func() {
 		rec := recover()
