@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	// "github.com/yassinebenaid/godump"
 )
 
@@ -293,14 +294,14 @@ func setReadTimeout(ctx *httpproxy.Context) {
 		spos2 := strings.Index(incExc[spos+1:], ";")
 		clientOrProxyStr := incExc[spos+1 : spos+spos2+1]
 		spos3 := strings.Index(incExc[spos+spos2+2:], ";")
-		if spos3 >= 0 {
+		if spos3 >= 0  {
 			incExcRex = incExc[spos+spos2+2 : spos+spos2+spos3+2]
 			if spos+spos2+spos3+3 < len(incExc) {
 				timeOut, err = strconv.Atoi(incExc[spos+spos2+spos3+3:])
 				if err != nil {
 					logging.Printf("ERROR", "setReadTimeout: sessionID:%d Error converting string %s to int: %v\n", ctx.SessionNo, incExc[spos+spos2+spos3+3:], err)
 				}
-			}
+			} 
 		} else {
 			incExcRex = incExc[spos+spos2+2:]
 		}
@@ -473,7 +474,7 @@ func runProxy(args []string) {
 	// Clamd connection
 	if readconfig.Config.Clamd.Enable {
 		logging.Printf("INFO", "runProxy: Clamd connection initalised: %s\n", readconfig.Config.Clamd.Connection)
-		prx.ClamdStruct, err = viruscheck.SetupClamd(readconfig.Config.Clamd.Connection)
+		prx.ClamdStruct,err = viruscheck.SetupClamd(readconfig.Config.Clamd.Connection)
 		if err != nil {
 			logging.Printf("ERROR", "runProxy: SetupClamd error: %v\n", err)
 			return
@@ -499,7 +500,16 @@ func runProxy(args []string) {
 	// Listen...
 	logging.Printf("DEBUG", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
 	listen := readconfig.Config.Listen.IP + ":" + readconfig.Config.Listen.Port
-	err = http.ListenAndServe(listen, prx)
+	server := &http.Server {
+		Addr:	listen,
+		Handler:	prx,
+		ReadTimeout:	5 * time.Second,
+		WriteTimeout:	10 * time.Second,
+		IdleTimeout:	120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1Mb
+	}
+	err = server.ListenAndServe()
+	//err = http.ListenAndServe(listen, prx)
 	if err != nil {
 		logging.Printf("ERROR", "runProxy: ListenAndServer error: %v\n", err)
 	}
