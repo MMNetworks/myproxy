@@ -32,7 +32,6 @@ type Error struct {
 
 // NewError returns a new Error.
 func NewError(errString string) *Error {
-	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	return &Error{errString}
 }
 
@@ -46,6 +45,9 @@ func isConnectionClosed(err error) bool {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if err == nil {
 		return false
+	}
+	if err == io.EOF {
+		return true
 	}
 	opErr, ok := err.(*net.OpError)
 	if ok {
@@ -62,10 +64,6 @@ func isConnectionClosed(err error) bool {
 			return false
 		}
 	}
-
-	//if err == io.EOF {
-	//	return true
-	//}
 
 	// Do not understand the below - maybe syscall error handling changed.
 	// e.g. splice: broken pipe error is not seen as EPIPE

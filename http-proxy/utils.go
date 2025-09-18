@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"myproxy/logging"
 	"net/http"
 	"net/http/httputil"
@@ -27,7 +26,7 @@ func InMemoryResponse(code int, header http.Header, body []byte) *http.Response 
 	var bodyReadCloser io.ReadCloser
 	var bodyContentLength = int64(0)
 	if body != nil {
-		bodyReadCloser = ioutil.NopCloser(bytes.NewBuffer(body))
+		bodyReadCloser = io.NopCloser(bytes.NewBuffer(body))
 		bodyContentLength = int64(len(body))
 	}
 	return &http.Response{

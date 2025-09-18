@@ -3,7 +3,6 @@ package logging
 import (
 	"fmt"
 	"myproxy/readconfig"
-	"strings"
 	"time"
 )
 
@@ -80,21 +79,24 @@ func AccesslogWrite(record AccessLogRecord) (int, error) {
 	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
 	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
 
-	accessLogline := fmt.Sprintf("proxy=%s;proxyIP=%s;sessionID=%d;sourceIP=%s;destinationIP=%s;user-agent=%s;forwardedIP=%s;upstreamProxyIP=%s;method=%s;scheme=%s;url=%s;version=%s;status=%s;virus=%s;bytesIN=%d;bytesOUT=%d;protocol=%s;starttime=%s;endtime=%s;duration=%s;speedIN=%s;speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
-
-	// Make sure output is clean csv format (comma seperated) after ACCESS: for postprocessing
-	runes := []rune{'^', '£', '&', '!', '|'}
-	for _, r := range runes {
-		index := strings.IndexRune(accessLogline, r)
-		if index < 0 {
-			newLine := strings.ReplaceAll(accessLogline, ",", string(r))
-			newLine = strings.ReplaceAll(newLine, ";", ",")
-			accessLogline = strings.ReplaceAll(newLine, string(r), ";")
-			break
-		}
-	}
+	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 
 	length, err := osPrintf(accesslogFilename, "ACCESS", accessLogline)
+
+	return length, err
+}
+
+func AccesslogWriteStart(record AccessLogRecord) (int, error) {
+	var accesslogFilename string = "STDOUT"
+	if readconfig.Config != nil {
+		accesslogFilename = readconfig.Config.Logging.AccessLog
+	}
+	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
+	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
+
+	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
+
+	length, err := osPrintf(accesslogFilename, "STARTLOG", accessLogline)
 
 	return length, err
 }

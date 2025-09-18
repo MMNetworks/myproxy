@@ -1,7 +1,9 @@
 package authenticate
 
 import (
+	"bufio"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"myproxy/http-proxy"
 	"myproxy/logging"
@@ -11,9 +13,37 @@ import (
 	"strings"
 )
 
+type proxyAuthRoundTripper struct {
+	GetContext func() *httpproxy.Context
+}
+
+func (pA *proxyAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	ctx := pA.GetContext()
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
+
+	conn := ctx.UpstreamConn
+
+	if conn == nil {
+		logging.Printf("ERROR", "proxyAuthRoundTripper: SessionID:%d Error getting connection info\n", ctx.SessionNo)
+		return nil, errors.New("Empty proxy conenction")
+	}
+	if err := req.WriteProxy(conn); err != nil {
+		logging.Printf("ERROR", "proxyAuthRoundTripper: SessionID:%d Error writing to proxy connection: %s %v\n", ctx.SessionNo, err)
+		return nil, err
+	}
+	return http.ReadResponse(bufio.NewReader(conn), req)
+}
+
+var Rt *proxyAuthRoundTripper
+
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var err error
+	Rt = &proxyAuthRoundTripper{
+		GetContext: func() *httpproxy.Context {
+			return ctx
+		},
+	}
 	proxyAuthValues := resp.Header.Values("Proxy-Authenticate")
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Proxy-Authenticate header: %s\n", ctx.SessionNo, proxyAuthValues)
 	// Get best match
@@ -62,7 +92,6 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 
 func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
-	var r = req
 	var err error
 
 	proxyUsername := readconfig.Config.Proxy.BasicUser
@@ -70,8 +99,8 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 	proxyAuth := proxyUsername + ":" + proxyPassword
 	logging.Printf("DEBUG", "DoBasicProxyAuth: SessionID:%d encoded string: %s\n", ctx.SessionNo, base64.StdEncoding.EncodeToString([]byte(proxyAuth)))
 
-	r.Header.Add("Proxy-Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(proxyAuth))))
-	basicResp, err := ctx.Rt.RoundTrip(r)
+	req.Header.Add("Proxy-Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(proxyAuth))))
+	basicResp, err := Rt.RoundTrip(req)
 	if err != nil {
 		logging.Printf("ERROR", "DoBasicroxyAuth: SessionID:%d Unexpected RoundTrip error: %v\n", ctx.SessionNo, err)
 		if basicResp == nil {
