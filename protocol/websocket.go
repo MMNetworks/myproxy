@@ -42,19 +42,19 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 	} else {
 		rType = "response"
 	}
-	logging.Printf("DEBUG", "WebsocketRead: SessionID:%d websocket %s\n", sessionNo, rType)
+	logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Read Websocket %s\n", sessionNo, rType)
 
 	for {
 		conn.SetReadDeadline(time.Now().Add(time.Duration(timeOut) * time.Second))
 		start := time.Now()
 		n, err := conn.Read(localBuf)
 		elapsed := time.Since(start)
-		logging.Printf("DEBUG", "WebsocketRead: SessionID:%d %s connection read took %d milliseconds\n", sessionNo, rType, elapsed.Milliseconds())
+		logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Connection %s read took %d milliseconds\n", sessionNo, rType, elapsed.Milliseconds())
 		if err != nil {
 			return 0, err
 		}
 
-		logging.Printf("DEBUG", "WebsocketRead: SessionID:%d %s Read: %d\n", sessionNo, rType, n)
+		logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Read %d bytes from %s\n", sessionNo, n, rType)
 		if payloadLen == 0 {
 			fin = localBuf[0]&0x80 != 0
 			opcode = localBuf[0] & 0x0F
@@ -64,29 +64,29 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 
 			if payloadLen == 126 {
 				if n < offset+2 {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket too few data: %d<offset+2\n", sessionNo, n)
-					return 0, errors.New("too few data to detemine payload length")
+					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Too few data to determine Websocket payload length: %d<%d\n", sessionNo, n, offset+2)
+					return 0, errors.New("Too few data to detemine Websocket payload length")
 				}
 				payloadLen = int(binary.BigEndian.Uint16(localBuf[offset : offset+2]))
 				offset += 2
 			} else if payloadLen == 127 {
 				if n < offset+8 {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket too few data: %d<offset+8\n", sessionNo, n)
-					return 0, errors.New("too few data to detemine payload length")
+					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Too few data to determine Websocket payload length: %d<%d\n", sessionNo, n, offset+8)
+					return 0, errors.New("Too few data to detemine Websocket payload length")
 				}
 				payloadLen = int(binary.BigEndian.Uint64(localBuf[offset : offset+8]))
 				offset += 8
 			}
 
 			if payloadLen > maxPayloadLength {
-				logging.Printf("ERROR", "doMitm: SessionID:%d Websocket too large to convert: %d\n", sessionNo, payloadLen)
-				return 0, errors.New("data stream too long")
+				logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket payload too large to convert: %d>%d\n", sessionNo, payloadLen, maxPayloadLength)
+				return 0, errors.New("Websocket data stream too long")
 			}
 
 			if masked {
 				if n < offset+4 {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket too few data: %d<offset+4\n", sessionNo, n)
-					return 0, errors.New("too few data to get mask")
+					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Too few data to determine Websocket data mask: %d<%d\n", sessionNo, n, offset+4)
+					return 0, errors.New("Too few Websocket data to get data mask")
 				}
 				copy(maskKey[:], localBuf[offset:offset+4])
 				offset += 4
@@ -96,28 +96,28 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 
 			switch opcode {
 			case 0x0: // continuation
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket continuation\n", sessionNo)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: continuation\n", sessionNo)
 			case 0x1: // Text frame
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket string\n", sessionNo)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: string\n", sessionNo)
 			case 0x2: // Binary frame
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket binary\n", sessionNo)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: binary\n", sessionNo)
 			case 0x8: // Connection closed
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket connection closed\n", sessionNo)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: close\n", sessionNo)
 				copy(mbuf, localBuf[:n])
 				copy(buf, localBuf[:n])
 				return n, nil
 			case 0x9: // Ping
 				copy(mbuf, localBuf[:n])
 				copy(buf, localBuf[:n])
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket connection ping\n", sessionNo)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: ping\n", sessionNo)
 				return n, nil
 			case 0xA: // Pong
 				copy(mbuf, localBuf[:n])
 				copy(buf, localBuf[:n])
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket connection pong\n", sessionNo)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: pong\n", sessionNo)
 				return n, nil
 			default:
-				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket unknown type: %d\n", sessionNo, opcode)
+				logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket type: unknown/%d\n", sessionNo, opcode)
 				return n, nil
 			}
 			if n < offset+payloadLen {
@@ -135,7 +135,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 				}
 
 				if n > offset+payloadLen-dataLen {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket data contains second payload %d bytes\n", sessionNo, n-payloadLen-dataLen)
+					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket data stream contains second payload: %d>%d bytes\n", sessionNo, n, offset+payloadLen-dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Offset: %d Payload length: %d DataLen: %d\n", sessionNo, offset, payloadLen, dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Masked bit: %t FIN bit: %t\n", sessionNo, masked, fin)
 				}
@@ -169,7 +169,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 				}
 
 				if n > offset+payloadLen-dataLen {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket data contains second payload %d bytes\n", sessionNo, payloadLen-dataLen-n)
+					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket data stream contains second payload: %d>%d bytes\n", sessionNo, n, offset+payloadLen-dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Offset: %d Payload length: %d DataLen: %d\n", sessionNo, offset, payloadLen, dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Masked bit: %t FIN bit: %t\n", sessionNo, masked, fin)
 				}
@@ -189,6 +189,6 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 			}
 		}
 	}
-	logging.Printf("DEBUG", "WebsocketRead: SessionID:%d webseocket %s read returned\n", sessionNo, rType)
+	logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Read Websocket %s finished\n", sessionNo, rType)
 	return 0, nil
 }

@@ -81,7 +81,7 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 		if ip != nil {
 			serverNames, err := net.LookupAddr(serverAddr)
 			if err != nil {
-				logging.Printf("ERROR", "SetupClamd: SessionID:%d Could not convert ip to name %s: %v\n", sessionNo, serverAddr, err)
+				logging.Printf("ERROR", "SetupClamd: SessionID:%d Could not convert IP %s to name: %v\n", sessionNo, serverAddr, err)
 				return nil, err
 			}
 			// Don't expect multiple records for reverse DNS lookup
@@ -218,20 +218,20 @@ func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, b
 		//
 		client := clamdStruct.clamd
 
-		logging.Printf("DEBUG", "HasVirus: SessionID:%d Write response to clamd %d bytes\n", sessionNo, len(data))
+		logging.Printf("DEBUG", "HasVirus: SessionID:%d Write response to clamd: %d bytes\n", sessionNo, len(data))
 		readPipe, writePipe := io.Pipe()
 
 		go func() {
 			defer writePipe.Close()
 			_, err := writePipe.Write(data)
 			if err != nil {
-				logging.Printf("ERROR", "HasVirus: SessionID:%d Could not write to clamd scanner %v\n", sessionNo, err)
+				logging.Printf("ERROR", "HasVirus: SessionID:%d Could not write to clamd scanner: %v\n", sessionNo, err)
 			}
 		}()
 
 		resultChan, err := client.ScanStream(readPipe, make(chan bool))
 		if err != nil {
-			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not open clamd scanner %v\n", sessionNo, err)
+			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not open clamd scanner: %v\n", sessionNo, err)
 		}
 
 		logging.Printf("DEBUG", "HasVirus: SessionID:%d Get results from clamd\n", sessionNo)

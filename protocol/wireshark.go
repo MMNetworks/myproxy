@@ -47,6 +47,8 @@ var status safeStatus
 // Wireshark Writer
 var pcapWriter *pcapgo.Writer
 
+var tcpMutex sync.Mutex
+
 // track Session Sequence numbers and request state
 // for Wireshark export
 type TCPStruct struct {
@@ -56,6 +58,24 @@ type TCPStruct struct {
 	tcpServerRand  uint32
 	tcpLength      uint32
 	wasRequest     bool
+}
+
+type wiresharkStruct struct {
+	logTime     time.Time
+	state       TCPState
+	sessionNo   int64
+	request     bool
+	source      string
+	destination string
+	data        []byte
+}
+
+var wiresharkChan = make(chan wiresharkStruct, 65000) // Buffered channel
+
+func processor() {
+	for data := range wiresharkChan {
+		_writeWireshark(data.logTime, data.state, data.request, data.sessionNo, data.source, data.destination, data.data)
+	}
 }
 
 // attach tcp Struct to request context
@@ -80,6 +100,7 @@ func ListenWireshark(listen string) error {
 	status.mu.Lock()
 	status.active = false
 	status.mu.Unlock()
+	go processor()
 	go acceptWireshark(listener)
 
 	return nil
@@ -109,7 +130,7 @@ func acceptWireshark(listener net.Listener) {
 			status.active = false
 		}
 		status.mu.Unlock()
-		logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Waiting for connection\n", 0)
+		logging.Printf("INFO", "AcceptWireshark: SessionID:%d Waiting for connection\n", 0)
 		conn, err := listener.Accept()
 		if err != nil {
 			logging.Printf("ERROR", "AcceptWireshark: SessionID:%d Error accepting connection %v\n", 0, err)
@@ -129,7 +150,7 @@ func acceptWireshark(listener net.Listener) {
 		}
 		for _, cidrStr := range readconfig.Config.Wireshark.IncExc {
 			// IncExc string format (!)subnet
-			logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d IncExc Subnet %s\n", 0, cidrStr)
+			logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Check against IncExc Subnet %s\n", 0, cidrStr)
 			isEmpty, _ := regexp.MatchString("^[ ]*$", cidrStr)
 			if isEmpty {
 				continue
@@ -154,7 +175,7 @@ func acceptWireshark(listener net.Listener) {
 			remoteIP := net.ParseIP(remoteAddr)
 			matchRemote = cidr.Contains(remoteIP)
 			if matchRemote {
-				logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Remote address %s matches %s\n", 0, remoteAddr, cidrStr)
+				logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Remote address %s matched %s\n", 0, remoteAddr, cidrStr)
 				break
 			} else {
 				logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Remote address %s did not match %s\n", 0, remoteAddr, cidrStr)
@@ -205,6 +226,15 @@ func acceptWireshark(listener net.Listener) {
 }
 
 func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, dst string, data []byte) error {
+	timeStamp := time.Now()
+	wiresharkData := wiresharkStruct{logTime: timeStamp, state: tcp, sessionNo: sessionNo, request: isRequest, source: src, destination: dst, data: data}
+
+	wiresharkChan <- wiresharkData
+
+	return nil
+}
+
+func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionNo int64, src string, dst string, data []byte) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
 	var err error
 	var tcpSeq uint32
@@ -214,7 +244,9 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 		return nil
 	}
 
+	tcpMutex.Lock()
 	tcpState := tcp.GetTCPState()
+	defer tcpMutex.Unlock()
 
 	status.mu.Lock()
 	if !status.active {
@@ -232,7 +264,7 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 		srcIP = src[:cpos]
 		srcPort, err = strconv.Atoi(src[cpos+1:])
 		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not source port for %s to int %v\n", sessionNo, src, err)
+			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert source port for %s to int: %v\n", sessionNo, src, err)
 			return err
 		}
 
@@ -242,7 +274,7 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 		dstIP = dst[:cpos]
 		dstPort, err = strconv.Atoi(dst[cpos+1:])
 		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination port for %s to int %v\n", sessionNo, dst, err)
+			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination port for %s to int: %v\n", sessionNo, dst, err)
 			return err
 		}
 	}
@@ -254,9 +286,9 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 		tcpState.tcpLength = 0
 		tcpState.tcpSequence = 1
 		tcpState.tcpAcknowledge = 1
-		err := writeSynAck(tcpState, sessionNo, srcIP, dstIP, srcPort, dstPort)
+		err := writeSynAck(timeStamp, tcpState, sessionNo, srcIP, dstIP, srcPort, dstPort)
 		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not write SYN/SYN-ACK/ACK %v\n", sessionNo, err)
+			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not write SYN/SYN-ACK/ACK: %v\n", sessionNo, err)
 		}
 	}
 	logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add client/server random number %d/%d \n", sessionNo, tcpState.tcpClientRand, tcpState.tcpServerRand)
@@ -285,9 +317,10 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 	step := 1460 // MTU 1500
 
 	// Loop from start to end, stepping by 1460
+	logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Total data length received: %d\n", sessionNo, len(data))
 	for i := start; i < end; i += step {
 
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d wasRequest/isRequest: %t/%t\n", sessionNo, tcpState.wasRequest, isRequest)
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Request state wasRequest/isRequest: %t/%t\n", sessionNo, tcpState.wasRequest, isRequest)
 		if isRequest {
 			if tcpState.wasRequest { // Was previous packet a client request ?
 				tcpState.tcpSequence = tcpState.tcpSequence + tcpState.tcpLength
@@ -313,7 +346,7 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 			tcpState.tcpLength = uint32(len(data[i:min(len(data), i+step)]))
 			tcpState.wasRequest = false // This is a server response
 		}
-		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add Sequence/Acknowledge %d/%d to packet. New length %d (wasRequest/isRequest: %t/%t)\n", sessionNo, tcpState.tcpSequence, tcpState.tcpAcknowledge, tcpState.tcpLength, tcpState.wasRequest, isRequest)
+		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Added Sequence/Acknowledge %d/%d to packet. New length %d (wasRequest/isRequest: %t/%t)\n", sessionNo, tcpState.tcpSequence, tcpState.tcpAcknowledge, tcpState.tcpLength, tcpState.wasRequest, isRequest)
 
 		// Create TCP layer
 		tcp := layers.TCP{
@@ -348,14 +381,14 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 		}
 		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not serialize packet %v\n", sessionNo, err)
+			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not serialize packet: %v\n", sessionNo, err)
 			return err
 		}
 
 		// Write the packet to the PCAP connection
 		if pcapWriter != nil {
 			err = pcapWriter.WritePacket(gopacket.CaptureInfo{
-				Timestamp:     time.Now(),
+				Timestamp:     timeStamp,
 				CaptureLength: len(buf.Bytes()),
 				Length:        len(buf.Bytes()),
 			}, buf.Bytes())
@@ -363,7 +396,7 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 			err = errors.New("Empty pcapWriter pointer")
 		}
 		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not write packet %v\n", sessionNo, err)
+			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not write packet: %v\n", sessionNo, err)
 			return err
 		}
 	}
@@ -371,7 +404,7 @@ func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, d
 
 }
 
-func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP string, srcPort int, dstPort int) error {
+func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP string, srcPort int, dstPort int) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
 	// Use fake MAC
 	eth := layers.Ethernet{
@@ -383,7 +416,7 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 	tcpSeq := tcpState.tcpClientRand
 	tcpAck := tcpState.tcpServerRand
 
-	logging.Printf("DEBUG", "WriteSynAck: SessionID:%d Create SYN/SYN-ACK/ACK for Identifier %d to packet\n", sessionNo, uint16(sessionNo&0xFFFF))
+	logging.Printf("DEBUG", "WriteSynAck: SessionID:%d Created SYN/SYN-ACK/ACK for IP packet Identifier %d\n", sessionNo, uint16(sessionNo&0xFFFF))
 	// Create IP layer
 	ip := layers.IPv4{
 		SrcIP:    net.ParseIP(srcIP), // Source IP
@@ -429,14 +462,14 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 	}
 	err := gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN packet %v\n", sessionNo, err)
+		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN packet: %v\n", sessionNo, err)
 		return err
 	}
 
 	// Write the packet to the PCAP connection
 	if pcapWriter != nil {
 		err = pcapWriter.WritePacket(gopacket.CaptureInfo{
-			Timestamp:     time.Now(),
+			Timestamp:     timeStamp,
 			CaptureLength: len(buf.Bytes()),
 			Length:        len(buf.Bytes()),
 		}, buf.Bytes())
@@ -444,7 +477,7 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 		err = errors.New("Empty pcapWriter pointer")
 	}
 	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write SYN packet %v\n", sessionNo, err)
+		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write SYN packet: %v\n", sessionNo, err)
 		return err
 	}
 
@@ -495,14 +528,14 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 	}
 	err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN-ACK packet %v\n", sessionNo, err)
+		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN-ACK packet: %v\n", sessionNo, err)
 		return err
 	}
 
 	// Write the packet to the PCAP connection
 	if pcapWriter != nil {
 		err = pcapWriter.WritePacket(gopacket.CaptureInfo{
-			Timestamp:     time.Now(),
+			Timestamp:     timeStamp,
 			CaptureLength: len(buf.Bytes()),
 			Length:        len(buf.Bytes()),
 		}, buf.Bytes())
@@ -510,7 +543,7 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 		err = errors.New("Empty pcapWriter pointer")
 	}
 	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write SYN-ACK packet %v\n", sessionNo, err)
+		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write SYN-ACK packet: %v\n", sessionNo, err)
 		return err
 	}
 
@@ -561,14 +594,14 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 	}
 	err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize ACK packet %v\n", sessionNo, err)
+		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize ACK packet: %v\n", sessionNo, err)
 		return err
 	}
 
 	// Write the packet to the PCAP connection
 	if pcapWriter != nil {
 		err = pcapWriter.WritePacket(gopacket.CaptureInfo{
-			Timestamp:     time.Now(),
+			Timestamp:     timeStamp,
 			CaptureLength: len(buf.Bytes()),
 			Length:        len(buf.Bytes()),
 		}, buf.Bytes())
@@ -576,7 +609,7 @@ func writeSynAck(tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP strin
 		err = errors.New("Empty pcapWriter pointer")
 	}
 	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write ACK packet %v\n", sessionNo, err)
+		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write ACK packet: %v\n", sessionNo, err)
 		return err
 	}
 

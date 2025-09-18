@@ -91,41 +91,9 @@ func NewProxy() (*Proxy, error) {
 // NewProxyCert returns a new Proxy given CA certificate and key.
 func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	var timeOut time.Duration = time.Duration(readconfig.Config.Connection.Timeout)
-	var keepAlive time.Duration = time.Duration(readconfig.Config.Connection.Keepalive)
 
 	prx := &Proxy{
-		Rt: &http.Transport{TLSClientConfig: &tls.Config{},
-			//			Proxy: http.ProxyFromEnvironment,
-			DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
-				logging.Printf("TRACE", "myproxy/http-proxy.NewProxyCert.Transport.DialContext: called\n")
-				conn, err := (&net.Dialer{
-					Timeout:   timeOut * time.Second,
-					KeepAlive: keepAlive * time.Second,
-				}).DialContext(dctx, network, addr)
-				if err != nil {
-					return nil, err
-				}
-				return conn, nil
-			},
-			Dial: func(network, addr string) (net.Conn, error) {
-				logging.Printf("TRACE", "myproxy/http-proxy.NewProxyCert.Transport.Dial: called\n")
-				conn, err := (&net.Dialer{
-					Timeout:   timeOut * time.Second,
-					KeepAlive: keepAlive * time.Second,
-				}).Dial(network, addr)
-				if err != nil {
-					return nil, err
-				}
-				return conn, nil
-			},
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			ResponseHeaderTimeout: 3 * time.Second,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
+		Rt:          http.DefaultTransport,
 		MitmChunked: true,
 		signer:      NewCaSignerCache(1024),
 	}
@@ -161,12 +129,8 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 	conn, err := newDial.Dial("tcp", address)
 	if err != nil {
 		logging.Printf("ERROR", "NetDial: SessionID:%d Error connecting to address: %s error: %v\n", ctx.SessionNo, address, err)
-		ctx.AccessLog.Status = "500 internal error"
 		return nil, err
 	}
-	ctx.AccessLog.UpstreamProxyIP = ""
-	ctx.AccessLog.Status = "200 connected to " + conn.RemoteAddr().String()
-	ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 
 	return conn, err
 }
@@ -174,13 +138,12 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 // ServeHTTP implements http.Handler.
 func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	ctx := &Context{Prx: prx, 
-			SessionNo: atomic.AddInt64(&prx.SessionNo, 1), 
-			TCPState: &protocol.TCPStruct{}, 
-			WebsocketState: &protocol.WSStruct{}, 
-			Rt: prx.Rt, 
-			Dial: prx.Dial}
-	
+	ctx := &Context{Prx: prx,
+		SessionNo:      atomic.AddInt64(&prx.SessionNo, 1),
+		TCPState:       &protocol.TCPStruct{},
+		WebsocketState: &protocol.WSStruct{},
+		Rt:             prx.Rt,
+		Dial:           prx.Dial}
 
 	defer func() {
 		rec := recover()
@@ -191,6 +154,21 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(rec)
 		}
 	}()
+	// Set deafult with NetDial
+	ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
+		DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+			return NetDial(ctx, network, addr)
+		},
+		Dial: func(network, addr string) (net.Conn, error) {
+			return NetDial(ctx, network, addr)
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		ResponseHeaderTimeout: 3 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 	// Initialise access log values
 	ctx.AccessLog.Proxy, _ = os.Hostname()
 	ctx.AccessLog.SessionID = ctx.SessionNo
@@ -231,6 +209,8 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx.AccessLog.ProxyIP = localAddr.String()
 
+	logging.AccesslogWriteStart(ctx.AccessLog)
+
 	if ctx.doAccept(w, r) {
 		return
 	}
@@ -243,29 +223,42 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.Header.Del("Proxy-Authorization")
 
 	if b := ctx.doConnect(w, r); b {
+		// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doConnect %t\n", ctx.SessionNo,b)
 		return
 	}
+	logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doConnect %t\n", ctx.SessionNo, false)
 
 	for {
 		var w2 = w
 		var r2 = r
 		var cyclic = false
+
+		// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d ConnectAction: %v\n", ctx.SessionNo,ctx.ConnectAction)
 		switch ctx.ConnectAction {
 		case ConnectMitm:
 			if prx.MitmChunked {
 				cyclic = true
 			}
+			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d Call doMitm\n", ctx.SessionNo)
 			w2, r2 = ctx.doMitm()
 		}
 		if w2 == nil || r2 == nil {
+			if w2 == nil {
+				// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doMitm w2 == nil \n", ctx.SessionNo)
+			}
+			if r2 == nil {
+				// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doMitm r2 == nil \n", ctx.SessionNo)
+			}
 			break
 		}
 		//r.Header.Del("Accept-Encoding")
 		//r.Header.Del("Connection")
 		ctx.SubSessionNo++
 		if b, err := ctx.doRequest(w2, r2); err != nil {
+			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doRequest: %t Error: %v\n", ctx.SessionNo,b,err)
 			break
 		} else {
+			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doRequest: %t\n", ctx.SessionNo,b)
 			if b {
 				if !cyclic {
 					break
@@ -275,6 +268,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if err := ctx.doResponse(w2, r2); err != nil || !cyclic {
+			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doResponse Error: %v\n", ctx.SessionNo,err)
 			break
 		}
 	}

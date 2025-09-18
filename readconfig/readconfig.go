@@ -32,10 +32,11 @@ type Listen struct {
 	Port string `yaml:"port"`
 }
 type Logging struct {
-	Level     string `yaml:"level"`
-	File      string `yaml:"file"`
-	AccessLog string `yaml:"accesslog"`
-	Trace     bool   `yaml:"trace"`
+	Level        string `yaml:"level"`
+	File         string `yaml:"file"`
+	AccessLog    string `yaml:"accesslog"`
+	Trace        bool   `yaml:"trace"`
+	MilliSeconds bool   `yaml:"msec"`
 }
 type Connection struct {
 	ReadTimeout int `yaml:"readtimeout"`
@@ -113,7 +114,6 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
-
 	if err != nil {
 		log.Printf("ERROR: Readconfig: %v\n", err)
 		return nil, err
@@ -489,6 +489,10 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if err != nil {
 			return nil, err
 		}
+		_, err = os.Stat(certFilepath)
+		if err != nil {
+			return nil, err
+		}
 		configOut.Clamd.Certfile = certFilepath
 	}
 	if configOut.Clamd.Keyfile != "" {
@@ -496,10 +500,18 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if err != nil {
 			return nil, err
 		}
+		_, err = os.Stat(keyFilepath)
+		if err != nil {
+			return nil, err
+		}
 		configOut.Clamd.Keyfile = keyFilepath
 	}
 	if configOut.Clamd.CAfile != "" && configOut.Clamd.CAfile != "insecure" {
 		caFilepath, err := filepath.Abs(configOut.Clamd.CAfile)
+		if err != nil {
+			return nil, err
+		}
+		_, err = os.Stat(caFilepath)
 		if err != nil {
 			return nil, err
 		}

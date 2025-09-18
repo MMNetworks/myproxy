@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"bufio"
 	"fmt"
 	"myproxy/readconfig"
 	"os"
@@ -9,13 +10,37 @@ import (
 	"time"
 )
 
+// Followed RFC in using hex instead of decimal in same cases
+//
+// SSL 3.0 RFC 6101
+// TLS 1.0 RFC 2246
+// TLS 1.1 RFC 4346
+// TLS 1.2 RFC 5246
+// TLS 1.3 RFC 8446
+// + RFC8701
 var TLSString = map[string]string{
-	"2":   "SSL 2.0",
-	"300": "SSL 3.0",
-	"301": "TLS 1.0",
-	"302": "TLS 1.1",
-	"303": "TLS 1.2",
-	"304": "TLS 1.3",
+	"2":    "SSL 2.0",
+	"300":  "SSL 3.0",
+	"301":  "TLS 1.0",
+	"302":  "TLS 1.1",
+	"303":  "TLS 1.2",
+	"304":  "TLS 1.3",
+	"a0a":  "RFC8701",
+	"1a1a": "RFC8701",
+	"2a2a": "RFC8701",
+	"3a3a": "RFC8701",
+	"4a4a": "RFC8701",
+	"5a5a": "RFC8701",
+	"6a6a": "RFC8701",
+	"7a7a": "RFC8701",
+	"8a8a": "RFC8701",
+	"9a9a": "RFC8701",
+	"aaaa": "RFC8701",
+	"baba": "RFC8701",
+	"caca": "RFC8701",
+	"dada": "RFC8701",
+	"eaea": "RFC8701",
+	"fafa": "RFC8701",
 }
 
 var TLSRecordType = map[uint8]string{
@@ -24,6 +49,7 @@ var TLSRecordType = map[uint8]string{
 	21: "alert",
 	22: "handshake",
 	23: "application_data",
+	24: "heartbeat",
 }
 
 var TLSHandshakeType = map[uint8]string{
@@ -55,6 +81,7 @@ var TLSHandshakeType = map[uint8]string{
 }
 
 // Cipher list from https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4
+// + RFC8701
 var TLSCipher = map[string]string{
 	"0":    "TLS_NULL_WITH_NULL_NULL",
 	"1":    "TLS_RSA_WITH_NULL_MD5",
@@ -408,9 +435,27 @@ var TLSCipher = map[string]string{
 	"d002": "TLS_ECDHE_PSK_WITH_AES_256_GCM_SHA384",
 	"d003": "TLS_ECDHE_PSK_WITH_AES_128_CCM_8_SHA256",
 	"d005": "TLS_ECDHE_PSK_WITH_AES_128_CCM_SHA256",
+	"a0a":  "RFC8701",
+	"1a1a": "RFC8701",
+	"2a2a": "RFC8701",
+	"3a3a": "RFC8701",
+	"4a4a": "RFC8701",
+	"5a5a": "RFC8701",
+	"6a6a": "RFC8701",
+	"7a7a": "RFC8701",
+	"8a8a": "RFC8701",
+	"9a9a": "RFC8701",
+	"aaaa": "RFC8701",
+	"baba": "RFC8701",
+	"caca": "RFC8701",
+	"dada": "RFC8701",
+	"eaea": "RFC8701",
+	"fafa": "RFC8701",
 }
 
 // from https://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xhtml
+// +RFC8701
+// + "TLS Application-Layer Protocol Settings Extension" - ihttps://github.com/vasilvv/tls-alps/blob/main/draft-vvv-tls-alps.md
 var TLSExtensionType = map[uint16]string{
 	0:     "server_name",
 	1:     "max_fragment_length",
@@ -475,10 +520,110 @@ var TLSExtensionType = map[uint16]string{
 	60:    "sequence_number_encryption_algorithms",
 	61:    "rrc",
 	62:    "tls_flags",
-	13172: " next_protocol_negotiation", // Not IANA assigned !!
+	17613: "ApplicationSettingsSupport", // Draft
+	13172: "next_protocol_negotiation",  // Not IANA assigned !!
 	64768: "ech_outer_extensions",
 	65037: "encrypted_client_hello",
 	65281: "renegotiation_info",
+	2570:  "RFC8701",
+	6682:  "RFC8701",
+	10794: "RFC8701",
+	14906: "RFC8701",
+	19018: "RFC8701",
+	23130: "RFC8701",
+	27242: "RFC8701",
+	31354: "RFC8701",
+	35466: "RFC8701",
+	39578: "RFC8701",
+	43690: "RFC8701",
+	47802: "RFC8701",
+	51914: "RFC8701",
+	56026: "RFC8701",
+	60138: "RFC8701",
+	64250: "RFC8701",
+}
+
+type logStruct struct {
+	time     string
+	filename string
+	level    string
+	message  string
+}
+
+var logChan = make(chan logStruct, 65000) // Buffered channel
+
+func Processor() {
+	var logBuffer *bufio.Writer
+	var accessBuffer *bufio.Writer
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	// Buffer writing to OS files
+
+	logFilename := readconfig.Config.Logging.File
+	accessLog := readconfig.Config.Logging.AccessLog
+
+	if strings.ToUpper(logFilename) != "STDOUT" && logFilename != "" {
+		if strings.ToUpper(logFilename) != "SYSLOG" && strings.ToUpper(logFilename) != "EVENTLOG" {
+			// Log buffered to local Unix file
+			logFile, err := os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+			if err != nil {
+				timeStamp := time.Now().Format(time.RFC1123)
+				fmt.Printf("%s ERROR: Could not open logfile %s\n", timeStamp, logFilename)
+				return
+			}
+			defer logFile.Close()
+			logBuffer = bufio.NewWriterSize(logFile, 64*1024) // 64KB buffer
+		} // else write to system log
+	} else {
+		// Log buffered to stdout
+		logFilename = "STDOUT"
+		logBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
+	}
+	if strings.ToUpper(accessLog) != "STDOUT" && accessLog != "" {
+		if strings.ToUpper(accessLog) != "SYSLOG" && strings.ToUpper(accessLog) != "EVENTLOG" {
+			// Log buffered to local Unix file
+			accessLogFile, err := os.OpenFile(accessLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+			if err != nil {
+				timeStamp := time.Now().Format(time.RFC1123)
+				fmt.Printf("%s ERROR: Could not open accesslog file %s\n", timeStamp, accessLog)
+				return
+			}
+			defer accessLogFile.Close()
+			accessBuffer = bufio.NewWriterSize(accessLogFile, 64*1024) // 64KB buffer
+		} // else write to sysetm log
+	} else {
+		// Log buffered to stdout
+		accessLog = "STDOUT"
+		accessBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
+	}
+
+	for {
+		select {
+		case lStruct, ok := <-logChan:
+			if !ok {
+				logBuffer.Flush()
+				accessBuffer.Flush()
+				timeStamp := time.Now().Format(time.RFC1123)
+				fmt.Printf("%s ERROR: Processor: channel error\n", timeStamp)
+				return
+			}
+			if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(logFilename) == "EVENTLOG" {
+				_systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
+			} else {
+				if strings.ToUpper(lStruct.filename) == strings.ToUpper(logFilename) {
+					_osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
+				} else if strings.ToUpper(lStruct.filename) == strings.ToUpper(accessLog) {
+					_osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
+				} else {
+					_osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")
+				}
+			}
+		case <-ticker.C:
+			logBuffer.Flush()    // periodic flush
+			accessBuffer.Flush() // periodic flush
+		}
+	}
 }
 
 func GetFunctionName() string {
@@ -487,100 +632,75 @@ func GetFunctionName() string {
 	return fn.Name()
 }
 
+func Printf(level string, format string, a ...any) (int, error) {
+	message := fmt.Sprintf(format, a...)
+	formatString := time.RFC1123
+	if readconfig.Config.Logging.MilliSeconds {
+		formatString = "Mon, 02 Jan 2006 15:04:05.000 MST"
+	}
+	timeStamp := time.Now().Format(formatString)
+	logFilename := readconfig.Config.Logging.File
+	line := logStruct{time: timeStamp, filename: logFilename, level: level, message: message}
+	length := len(level + ": " + message)
+
+	logChan <- line
+
+	return length, nil
+}
+
 func osPrintf(logFilename string, level string, format string, a ...any) (int, error) {
+	message := fmt.Sprintf(format, a...)
+	timeStamp := time.Now().Format(time.RFC1123)
+	line := logStruct{time: timeStamp, filename: logFilename, level: level, message: message}
+	length := len(level + ": " + message)
+
+	logChan <- line
+
+	return length, nil
+}
+
+func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format string, a ...any) (int, error) {
 	var length int = 0
 	var err error = nil
-	var logLevel string = "DEBUG"
-	var logTrace bool = false
 
-	if readconfig.Config != nil {
-		logLevel = strings.ToUpper(readconfig.Config.Logging.Level)
-		logTrace = readconfig.Config.Logging.Trace
-	}
+	logLevel := strings.ToUpper(readconfig.Config.Logging.Level)
+	logTrace := readconfig.Config.Logging.Trace
 
 	message := fmt.Sprintf(format, a...)
-	if strings.ToUpper(logFilename) != "STDOUT" && logFilename != "" {
-		var logFile *os.File
-		// Log to local Unix file
-		logFile, err = os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-		if err != nil {
-			return 0, err
+	if level == "INFO" {
+		switch {
+		case
+			logLevel == "DEBUG",
+			logLevel == "INFO":
+			length, err = fmt.Fprintf(logBuffer, "%s INFO: %s", timeStamp, message)
+		default:
 		}
-		timeStamp := time.Now().Format(time.RFC1123)
-		if level == "INFO" {
-			switch {
-			case
-				logLevel == "DEBUG",
-				logLevel == "INFO":
-				length, err = fmt.Fprintf(logFile, "%s INFO: %s", timeStamp, message)
-			default:
-			}
-		} else if level == "DEBUG" {
-			switch {
-			case
-				logLevel == "DEBUG":
-				length, err = fmt.Fprintf(logFile, "%s DEBUG: %s", timeStamp, message)
-			default:
-			}
-		} else if level == "WARNING" {
-			switch {
-			case
-				logLevel == "DEBUG",
-				logLevel == "INFO",
-				logLevel == "WARNING":
-				length, err = fmt.Fprintf(logFile, "%s WARNING: %s", timeStamp, message)
-			default:
-			}
-		} else if level == "ERROR" {
-			length, err = fmt.Fprintf(logFile, "%s ERROR: %s", timeStamp, message)
-		} else if level == "ACCESS" {
-			length, err = fmt.Fprintf(logFile, "%s ACCESS: %s", timeStamp, message)
-		} else if level == "TRACE" {
-			if logTrace {
-				length, err = fmt.Printf("%s TRACE: %s", timeStamp, message)
-			}
-		} else {
-			length, err = fmt.Fprintf(logFile, "%s UNKNOWN: %s", timeStamp, message)
+	} else if level == "DEBUG" {
+		switch {
+		case
+			logLevel == "DEBUG":
+			length, err = fmt.Fprintf(logBuffer, "%s DEBUG: %s", timeStamp, message)
+		default:
 		}
-		logFile.Close()
+	} else if level == "WARNING" {
+		switch {
+		case
+			logLevel == "DEBUG",
+			logLevel == "INFO",
+			logLevel == "WARNING":
+			length, err = fmt.Fprintf(logBuffer, "%s WARNING: %s", timeStamp, message)
+		default:
+		}
+	} else if level == "ERROR" {
+		length, err = fmt.Fprintf(logBuffer, "%s ERROR: %s", timeStamp, message)
+	} else if level == "ACCESS" || level == "STARTLOG" {
+		length, err = fmt.Fprintf(logBuffer, "%s %s: %s", timeStamp, level, message)
+	} else if level == "TRACE" {
+		if logTrace {
+			length, err = fmt.Fprintf(logBuffer, "%s TRACE: %s", timeStamp, message)
+		}
 	} else {
-		// Log to stdout
-		timeStamp := time.Now().Format(time.RFC1123)
-		if level == "INFO" {
-			switch {
-			case
-				logLevel == "DEBUG",
-				logLevel == "INFO":
-				length, err = fmt.Printf("%s INFO: %s", timeStamp, message)
-			default:
-			}
-		} else if level == "DEBUG" {
-			switch {
-			case
-				logLevel == "DEBUG":
-				length, err = fmt.Printf("%s DEBUG: %s", timeStamp, message)
-			default:
-			}
-		} else if level == "WARNING" {
-			switch {
-			case
-				logLevel == "DEBUG",
-				logLevel == "INFO",
-				logLevel == "WARNING":
-				length, err = fmt.Printf("%s WARNING: %s", timeStamp, message)
-			default:
-			}
-		} else if level == "ERROR" {
-			length, err = fmt.Printf("%s ERROR: %s", timeStamp, message)
-		} else if level == "ACCESS" {
-			length, err = fmt.Printf("%s ACCESS: %s", timeStamp, message)
-		} else if level == "TRACE" {
-			if logTrace {
-				length, err = fmt.Printf("%s TRACE: %s", timeStamp, message)
-			}
-		} else {
-			length, err = fmt.Printf("%s UNKNOWN: %s", level, timeStamp, message)
-		}
+		length, err = fmt.Fprintf(logBuffer, "%s UNKNOWN: %s", timeStamp, message)
 	}
 	return length, err
 }

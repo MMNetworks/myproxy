@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"myproxy/http-proxy"
 	"myproxy/logging"
 	"myproxy/protocol"
@@ -32,45 +33,45 @@ func OnError(ctx *httpproxy.Context, where string,
 	// panic(err)
 }
 
-func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
-	r *http.Request) bool {
+func setTLSBreak(ctx *httpproxy.Context) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
-	// Handle local request has path "/info"
-	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
-		w.Write([]byte("This is myproxy."))
-		return true
-	}
-	err := upstream.SetProxy(ctx)
-	if err != nil {
-		logging.Printf("ERROR:", "OnAccept: SessionID:%d Failed to set upstream proxy: %v\n", ctx.SessionNo, err)
-	}
-	setReadTimeout(ctx)
-	return false
-}
-
-func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
-	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
-	// Auth test user.
-	if pass != "" {
-		hash := sha256.New()
-		hash.Write([]byte(pass))
-		hashSum := string(hash.Sum(nil))
-		hexSum := fmt.Sprintf("%x", hashSum)
-		logging.Printf("DEBUG", "OnAuth: SessionID:%d User: %s Password hash: %s\n", ctx.SessionNo, user, hexSum)
-		if user == readconfig.Config.Proxy.LocalBasicUser && hexSum == readconfig.Config.Proxy.LocalBasicHash {
-			return true
-		} else {
-			return false
+	if readconfig.Config.MITM.Enable {
+		if len(readconfig.Config.MITM.IncExc) == 0 {
+			// Empty Include/Exclude list => TLS break all
+			ctx.TLSBreak = true
+		}
+		for _, v := range readconfig.Config.MITM.IncExc {
+			// IncExc string format (!|)src,(client|proxy);regex,rootCA
+			logging.Printf("DEBUG", "setTLSBreak: SessionID:%d Check against IncExc entry: %s\n", ctx.SessionNo, v)
+			isEmpty, _ := regexp.MatchString("^[ ]*$", v)
+			if isEmpty {
+				continue
+			}
+			tlsBreak := doTLSBreak(ctx, v)
+			if tlsBreak < 0 {
+				ctx.TLSBreak = false
+				break
+			} else if tlsBreak > 0 {
+				ctx.TLSBreak = true
+				break
+			}
 		}
 	}
-	return false
+	var status string
+	if ctx.TLSBreak {
+		status = "enabled"
+	} else {
+		status = "disabled"
+	}
+	logging.Printf("INFO", "setTLSBreak: SessionID:%d TLS Break for URL %s %s\n", ctx.SessionNo, ctx.Req.URL.Redacted(), status)
 }
 
 func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var connectionIP string = ctx.AccessLog.SourceIP
 	var forwardedIP string = ctx.AccessLog.ForwardedIP
-	var uri string = ctx.ConnectReq.URL.String()
+	var uri string = ctx.Req.URL.String()
+	var uriRedacted string = ctx.Req.URL.Redacted()
 	var matchConn bool = false
 	var matchForw bool = false
 	var checkClient bool = true
@@ -85,48 +86,45 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	clientOrProxyStr := incExc[spos+1 : spos+spos2+1]
 	spos3 := strings.Index(incExc[spos+spos2+2:], ";")
 	if spos3 >= 0 {
-		transportRt := ctx.Rt.(*http.Transport)
 
 		incExcRex = incExc[spos+spos2+2 : spos+spos2+spos3+2]
 		rootCA = incExc[spos+spos2+spos3+3:]
 
 		if rootCA == "insecure" {
 			// Replace the TLSClientConfig
-			transportRt.TLSClientConfig = &tls.Config{
+			ctx.TLSConfig = &tls.Config{
 				InsecureSkipVerify: true, // Skip certificate verification
 			}
 		} else {
 			rootCAFilepath, err := filepath.Abs(rootCA)
 			if err != nil {
-				logging.Printf("ERROR", "doTLSBreak: sessionID:%d Could not read CA bundle: %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not read CA bundle: %v\n", ctx.SessionNo, err)
 				return 0
 			}
 
 			caCerts, err := os.ReadFile(rootCAFilepath)
 			if err != nil {
-				logging.Printf("ERROR", "doTLSBreak: sessionID:%d Could  not read CA bundle: %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could  not read CA bundle: %v\n", ctx.SessionNo, err)
 				return 0
 			}
 
 			customPool, err := x509.SystemCertPool()
 			if err != nil {
-				logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to load system CA bundle: %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Failed to load system CA bundle: %v\n", ctx.SessionNo, err)
 				return 0
 			}
 
 			ok := customPool.AppendCertsFromPEM(caCerts)
 			if !ok {
-				logging.Printf("ERROR", "doTLSBreak: sessionID:%d Failed to append custom CA bundle\n", ctx.SessionNo)
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Failed to append custom CA bundle\n", ctx.SessionNo)
 				return 0
 			}
 
 			// Replace the TLSClientConfig
-			transportRt.TLSClientConfig = &tls.Config{
+			ctx.TLSConfig = &tls.Config{
 				RootCAs: customPool,
 			}
 		}
-		ctx.Rt = transportRt
-
 	} else {
 		incExcRex = incExc[spos+spos2+2:]
 	}
@@ -134,11 +132,11 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	// Match URL against regex
 	matchURI, err := regexp.MatchString(incExcRex, uri)
 	if err != nil {
-		logging.Printf("ERROR", "doTLSBreak: sessionID:%d Invalid regex: %s error: %v\n", ctx.SessionNo, incExcRex, err)
+		logging.Printf("ERROR", "doTLSBreak: SessionID:%d Invalid regex: %s error: %v\n", ctx.SessionNo, incExcRex, err)
 		return 0
 	}
 	if !matchURI {
-		logging.Printf("DEBUG", "doTLSBreak: sessionID:%d regex does not match. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uri)
+		logging.Printf("DEBUG", "doTLSBreak: SessionID:%d regex does not match. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uriRedacted)
 		return 0
 	}
 
@@ -175,10 +173,7 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 		connIP := net.ParseIP(connectionIP)
 		matchConn = cidr.Contains(connIP)
 	}
-	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d checkClient: %t\n", ctx.SessionNo, checkClient)
-	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d checkProxy: %t\n", ctx.SessionNo, checkProxy)
-	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d matchConn: %t\n", ctx.SessionNo, matchConn)
-	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d matchForw: %t\n", ctx.SessionNo, matchForw)
+	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d Flags: checkClient/checkProxy/matchConn/matchForw: %t/%t/%t/%t\n", ctx.SessionNo, checkClient, checkProxy, matchConn, matchForw)
 	if checkClient && matchConn || checkClient && matchForw {
 		if isNeg {
 			return -1
@@ -195,39 +190,48 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	return 0
 }
 
+func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
+	r *http.Request) bool {
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
+	// Handle local request has path "/info"
+	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
+		w.Write([]byte("This is myproxy."))
+		return true
+	}
+	logging.Printf("DEBUG", "OnAccept: SessionID:%d Process URL: %s\n", ctx.SessionNo, r.URL.Redacted())
+	setTLSBreak(ctx)
+	setReadTimeout(ctx)
+	err := upstream.SetProxy(ctx)
+	if err != nil {
+		logging.Printf("ERROR", "OnAccept: SessionID:%d Failed to set upstream proxy: %v\n", ctx.SessionNo, err)
+	}
+	return false
+}
+
+func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
+	// Auth test user.
+	if pass != "" {
+		hash := sha256.New()
+		hash.Write([]byte(pass))
+		hashSum := string(hash.Sum(nil))
+		hexSum := fmt.Sprintf("%x", hashSum)
+		logging.Printf("DEBUG", "OnAuth: SessionID:%d User: %s Password hash: %s\n", ctx.SessionNo, user, hexSum)
+		if user == readconfig.Config.Proxy.LocalBasicUser && hexSum == readconfig.Config.Proxy.LocalBasicHash {
+			return true
+		} else {
+			return false
+		}
+	}
+	return false
+}
+
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
-	var breakTLS bool = false
-	if readconfig.Config.MITM.Enable {
-		if len(readconfig.Config.MITM.IncExc) == 0 {
-			// Empty Include/Exclude list => TLS breal all
-			breakTLS = true
-		}
-		for _, v := range readconfig.Config.MITM.IncExc {
-			// IncExc string format (!|)src,(client|proxy);regex,rootCA
-			logging.Printf("DEBUG", "OnConnect: SessionID:%d IncExc: %s\n", ctx.SessionNo, v)
-			isEmpty, _ := regexp.MatchString("^[ ]*$", v)
-			if isEmpty {
-				continue
-			}
-			tlsBreak := doTLSBreak(ctx, v)
-			if tlsBreak < 0 {
-				breakTLS = false
-				break
-			} else if tlsBreak > 0 {
-				breakTLS = true
-				break
-			}
-		}
-		logging.Printf("DEBUG", "OnConnect: SessionID:%d URL: %s MITM:%t\n", ctx.SessionNo, ctx.ConnectReq.URL.String(), breakTLS)
-		if breakTLS {
-			return httpproxy.ConnectMitm, host
-		} else {
-			return httpproxy.ConnectProxy, host
-		}
+	if ctx.TLSBreak {
+		return httpproxy.ConnectMitm, host
 	} else {
-		logging.Printf("DEBUG", "OnConnect: SessionID:%d URL: %s MITM:%t\n", ctx.SessionNo, ctx.ConnectReq.URL.String(), false)
 		return httpproxy.ConnectProxy, host
 	}
 	//return httpproxy.ConnectProxy, host
@@ -283,7 +287,7 @@ func setReadTimeout(ctx *httpproxy.Context) {
 
 	for _, incExc := range readconfig.Config.WebSocket.IncExc {
 		// IncExc string format (!|)src,(client|proxy);regex,rootCA
-		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d IncExc: %s\n", ctx.SessionNo, incExc)
+		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Check against IncExc entry: %s\n", ctx.SessionNo, incExc)
 		isEmpty, _ := regexp.MatchString("^[ ]*$", incExc)
 		if isEmpty {
 			continue
@@ -294,14 +298,14 @@ func setReadTimeout(ctx *httpproxy.Context) {
 		spos2 := strings.Index(incExc[spos+1:], ";")
 		clientOrProxyStr := incExc[spos+1 : spos+spos2+1]
 		spos3 := strings.Index(incExc[spos+spos2+2:], ";")
-		if spos3 >= 0  {
+		if spos3 >= 0 {
 			incExcRex = incExc[spos+spos2+2 : spos+spos2+spos3+2]
 			if spos+spos2+spos3+3 < len(incExc) {
 				timeOut, err = strconv.Atoi(incExc[spos+spos2+spos3+3:])
 				if err != nil {
-					logging.Printf("ERROR", "setReadTimeout: sessionID:%d Error converting string %s to int: %v\n", ctx.SessionNo, incExc[spos+spos2+spos3+3:], err)
+					logging.Printf("ERROR", "setReadTimeout: SessionID:%d Error converting string %s to int: %v\n", ctx.SessionNo, incExc[spos+spos2+spos3+3:], err)
 				}
-			} 
+			}
 		} else {
 			incExcRex = incExc[spos+spos2+2:]
 		}
@@ -309,11 +313,11 @@ func setReadTimeout(ctx *httpproxy.Context) {
 		// Match URL against regex
 		matchURI, err := regexp.MatchString(incExcRex, uri)
 		if err != nil {
-			logging.Printf("ERROR", "setReadTimeout: sessionID:%d Invalid regex: %s err: %v\n", ctx.SessionNo, incExcRex, err)
+			logging.Printf("ERROR", "setReadTimeout: SessionID:%d Invalid regex: %s err: %v\n", ctx.SessionNo, incExcRex, err)
 			continue
 		}
 		if !matchURI {
-			logging.Printf("DEBUG", "setReadTimeout: sessionID:%d regex does not match. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uri)
+			logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Regex does not match URI. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uri)
 			continue
 		}
 
@@ -350,27 +354,24 @@ func setReadTimeout(ctx *httpproxy.Context) {
 			connIP := net.ParseIP(connectionIP)
 			matchConn = cidr.Contains(connIP)
 		}
-		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d checkClient: %t\n", ctx.SessionNo, checkClient)
-		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d checkProxy: %t\n", ctx.SessionNo, checkProxy)
-		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d matchConn: %t\n", ctx.SessionNo, matchConn)
-		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d matchForw: %t\n", ctx.SessionNo, matchForw)
+		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Flags: checkClient/checkProxy/matchConn/matchForw: %t/%t/%t/%t\n", ctx.SessionNo, checkClient, checkProxy, matchConn, matchForw)
 		if checkClient && matchConn || checkClient && matchForw {
 			if !isNeg {
-				logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Setting timeout for %s to %d\n", ctx.SessionNo, uri, timeOut)
+				logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Set timeout for %s: %d\n", ctx.SessionNo, uri, timeOut)
 				ctx.ReadTimeout = timeOut
 				return
 			}
 		}
 		if checkProxy && matchConn {
 			if !isNeg {
-				logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Setting timeout for %s to %d\n", ctx.SessionNo, uri, timeOut)
+				logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Set timeout for %s: %d\n", ctx.SessionNo, uri, timeOut)
 				ctx.ReadTimeout = timeOut
 				return
 			}
 		}
-		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d cidr %s does not match IP: %s\n", ctx.SessionNo, cidrStr, connectionIP)
+		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d cidr %s does not match IP %s\n", ctx.SessionNo, cidrStr, connectionIP)
 	}
-	logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Setting timeout for %s to %d\n", ctx.SessionNo, uri, ctx.ReadTimeout)
+	logging.Printf("INFO", "setReadTimeout: SessionID:%d Set timeout for %s: %d\n", ctx.SessionNo, uri, ctx.ReadTimeout)
 	return
 }
 
@@ -380,7 +381,7 @@ func runProxy(args []string) {
 	var caCert, caKey []byte
 
 	if len(args) == 0 {
-		logging.Printf("ERROR", "runProxy: Missing argument list\n")
+		log.Printf("ERROR", "runProxy: Missing argument list\n")
 		os.Exit(1)
 	}
 	CommandLine := flag.NewFlagSet("runProxy", flag.ExitOnError)
@@ -392,9 +393,14 @@ func runProxy(args []string) {
 	// Read Yaml config file
 	readconfig.Config, err = readconfig.ReadConfig(configFilename)
 	if err != nil {
-		logging.Printf("ERROR", "runProxy: config read error: %v\n", err)
+		timeStamp := time.Now().Format(time.RFC1123)
+		fmt.Printf("%s ERROR: runProxy: configuration read error: %v\n", timeStamp, err)
+		// Allow logging go routine time to log it ;-)
 		return
 	}
+
+	go logging.Processor()
+
 	logging.Printf("INFO", "runProxy: Logging.Level: %s\n", readconfig.Config.Logging.Level)
 	logging.Printf("INFO", "runProxy: Logging.Trace: %t\n", readconfig.Config.Logging.Trace)
 	logging.Printf("INFO", "runProxy: Logging.File: %s\n", readconfig.Config.Logging.File)
@@ -444,7 +450,7 @@ func runProxy(args []string) {
 		prx, err = httpproxy.NewProxy()
 	}
 	if err != nil {
-		logging.Printf("ERROR", "runProxy: error instantiating proxy %v\n", err)
+		logging.Printf("ERROR", "runProxy: Error instantiating proxy: %v\n", err)
 		return
 	}
 
@@ -473,8 +479,8 @@ func runProxy(args []string) {
 
 	// Clamd connection
 	if readconfig.Config.Clamd.Enable {
-		logging.Printf("INFO", "runProxy: Clamd connection initalised: %s\n", readconfig.Config.Clamd.Connection)
-		prx.ClamdStruct,err = viruscheck.SetupClamd(readconfig.Config.Clamd.Connection)
+		logging.Printf("INFO", "runProxy: Clamd connection initalised to %s\n", readconfig.Config.Clamd.Connection)
+		prx.ClamdStruct, err = viruscheck.SetupClamd(readconfig.Config.Clamd.Connection)
 		if err != nil {
 			logging.Printf("ERROR", "runProxy: SetupClamd error: %v\n", err)
 			return
@@ -498,14 +504,14 @@ func runProxy(args []string) {
 	}
 
 	// Listen...
-	logging.Printf("DEBUG", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
+	logging.Printf("INFO", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
 	listen := readconfig.Config.Listen.IP + ":" + readconfig.Config.Listen.Port
-	server := &http.Server {
-		Addr:	listen,
-		Handler:	prx,
-		ReadTimeout:	5 * time.Second,
-		WriteTimeout:	10 * time.Second,
-		IdleTimeout:	120 * time.Second,
+	server := &http.Server{
+		Addr:           listen,
+		Handler:        prx,
+		ReadTimeout:    5 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		IdleTimeout:    120 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1Mb
 	}
 	err = server.ListenAndServe()

@@ -233,13 +233,13 @@ func startService(name string, configFile string) error {
 	defer m.Disconnect()
 	s, err := m.OpenService(name)
 	if err != nil {
-		return fmt.Errorf("could not access service: %v", err)
+		return fmt.Errorf("Could not access service: %v", err)
 	}
 	defer s.Close()
-	logging.Printf("INFO", "startService: starting %s service with config file: %s\n", name, configFile)
+	logging.Printf("INFO", "startService: starting %s service with configuration file: %s\n", name, configFile)
 	err = s.Start("-c", configFile)
 	if err != nil {
-		return fmt.Errorf("could not start service: %v", err)
+		return fmt.Errorf("Could not start service: %v", err)
 	}
 	logging.Printf("INFO", "startService: started %s service\n", name)
 	return nil
@@ -254,22 +254,22 @@ func controlService(name string, c svc.Cmd, to svc.State) (error, svc.State) {
 	defer m.Disconnect()
 	s, err := m.OpenService(name)
 	if err != nil {
-		return fmt.Errorf("could not access service: %v", err), 0
+		return fmt.Errorf("Could not access service: %v", err), 0
 	}
 	defer s.Close()
 	status, err := s.Control(c)
 	if err != nil {
-		return fmt.Errorf("could not send control=%d: %v", c, err), 0
+		return fmt.Errorf("Could not send control=%d: %v", c, err), 0
 	}
 	timeout := time.Now().Add(10 * time.Second)
 	for c != svc.Interrogate && status.State != to {
 		if timeout.Before(time.Now()) {
-			return fmt.Errorf("timeout waiting for service to go to state=%d", to), 0
+			return fmt.Errorf("Timeout waiting for service to go to state=%d", to), 0
 		}
 		time.Sleep(300 * time.Millisecond)
 		status, err = s.Query()
 		if err != nil {
-			return fmt.Errorf("could not retrieve service status: %v", err), 0
+			return fmt.Errorf("Could not retrieve service status: %v", err), 0
 		}
 	}
 	return err, status.State
