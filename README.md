@@ -231,8 +231,8 @@ clamd:
   block: true
   blockonerror: true
   connection: "unix:/var/run/clamav/clamd.ctl"
-  certfile: "cliencert.pem"
-  keyfile: "clienkey.pem"
+  certfile: "clientcert.pem"
+  keyfile: "clientkey.pem"
   rootcafile: "rootca.pem"
 logging:
   level: "debug"
@@ -260,8 +260,8 @@ mitm:
   certfile: "cert.pem"
   incexcfile: "incexcfile.txt"
   incexc: 
-    - "!100.10.10.0/24;client;.;selfsignedCA*
-    - "0.0.0.0/0;client;.*
+    - "!100.10.10.0/24;client;.*;selfsignedCA"
+    - "0.0.0.0/0;client;.*"
 pac:
   type: "FILE"
   url: "http://pac.com/pac_file"
