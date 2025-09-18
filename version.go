@@ -1,12 +1,14 @@
 package main
 
 import (
-	"myproxy/logging"
+	"fmt"
+	"time"
 )
 
-const Version = "2.0.1"
+const Version = "2.5.0"
 
 func init() {
-	logging.Printf("INFO", "main: Starting version: %s\n", Version)
+	timeStamp := time.Now().Format(time.RFC1123)
+	fmt.Printf("%s INFO: main: Starting version: %s\n", timeStamp, Version)
 
 }
