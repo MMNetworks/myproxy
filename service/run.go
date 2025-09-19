@@ -198,7 +198,7 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 		w.Write([]byte("This is myproxy."))
 		return true
 	}
-	logging.Printf("DEBUG", "OnAccept: SessionID:%d Process URL: %s\n", ctx.SessionNo, r.URL.Redacted())
+	logging.Printf("INFO", "OnAccept: SessionID:%d Process URL: %s\n", ctx.SessionNo, r.URL.Redacted())
 	setTLSBreak(ctx)
 	setReadTimeout(ctx)
 	err := upstream.SetProxy(ctx)
