@@ -1307,7 +1307,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}()
 		wg.Wait()
 
-		logging.Printf("INFO", "doConnect: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
+		logging.Printf("INFO", "doConnect: SessionID:%d Websocket identified in traffic: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
 		ctx.WebsocketState.Websocket = false
 		hijConn.Close()
 		remoteConn.Close()
