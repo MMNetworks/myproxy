@@ -63,7 +63,7 @@ func setTLSBreak(ctx *httpproxy.Context) {
 	} else {
 		status = "disabled"
 	}
-	logging.Printf("INFO", "setTLSBreak: SessionID:%d TLS Break for URL %s %s\n", ctx.SessionNo, ctx.Req.URL.Redacted(), status)
+	logging.Printf("INFO", "setTLSBreak: SessionID:%d TLS Break for URL %s: %s\n", ctx.SessionNo, ctx.Req.URL.Redacted(), status)
 }
 
 func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
