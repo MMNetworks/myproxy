@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"golang.org/x/crypto/cryptobyte"
@@ -204,18 +205,13 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 	}
 
 	if !handshakeMessage.Empty() {
-		if !clientHello.ReadUint8(&messageType) {
-			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS handsake record not empty as it should be\n", SessionNo)
+		if !handshakeMessage.ReadUint8(&contentType) {
+			logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS handsake record not read messageType\n", SessionNo)
 			goto END
 		} else {
-			switch messageType {
-			case 0, 11, 15: // Valid Handshake Type TLS 1.3
-				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Packet contains also message type: %d/%s\n", SessionNo, messageType, logging.TLSHandshakeType[messageType])
-			case 20: // Valid Handshake Type TLS 1.2
-				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Packet contains also handshake type: %d/%s\n", SessionNo, messageType, logging.TLSRecordType[messageType])
+			switch contentType {
 			default:
-				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello handshake record with unknown message/handshake type: %d/%s\n", SessionNo, messageType, logging.TLSHandshakeType[messageType])
-				goto END
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello handshake record with handshake type: %d/%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
 			}
 		}
 	}
@@ -321,6 +317,16 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 				hex := fmt.Sprintf("%x", version)
 				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello TLS Version supported: %d/%s\n", SessionNo, version, logging.TLSString[hex])
 			}
+		} else if logging.TLSExtensionType[extType] == "key_share" {
+			var group uint16
+			var keyExchange cryptobyte.String
+
+			if !extData.ReadUint16(&group) || !extData.ReadUint16LengthPrefixed(&keyExchange) {
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read Client Hello TLS Key share data\n", SessionNo)
+			} else {
+				keyExchangeBytes := []byte(keyExchange)
+				logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello TLS Key group: 0x%04x Exchange: %x\n", SessionNo, group, keyExchangeBytes)
+			}
 		}
 	}
 
@@ -341,7 +347,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	var contentType uint8 = 0
 	var legacyRecordVersion uint16 = 0
 	var messageLength uint16 = 0
-	// Client Hello record
+	// Server Hello record
 	var messageType uint8 = 0
 	var serverHello cryptobyte.String
 	var legacyVersion uint16 = 0
@@ -350,6 +356,8 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	var ciphersuite uint16
 	var version uint16
 	var legacyCompressionMethod uint8
+	// Other records
+	var handshakeBody cryptobyte.String
 	// Look for SNI in here
 	var extensionsBytes cryptobyte.String
 	var extType uint16
@@ -402,23 +410,6 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	if !handshakeMessage.ReadUint24LengthPrefixed(&serverHello) {
 		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read full Server Hello handshake message\n", SessionNo)
 		goto END
-	}
-
-	if !handshakeMessage.Empty() {
-		if !handshakeMessage.ReadUint8(&messageType) {
-			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake record not empty as it should be\n", SessionNo)
-			goto END
-		} else {
-			switch messageType {
-			case 0, 8, 11, 13, 15: // Valid Handshake Type TLS 1.3
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also message type: %d/%s\n", SessionNo, messageType, logging.TLSHandshakeType[messageType])
-			case 20: // Valid Handshake Type TLS 1.2
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Packet contains also handshake type: %d/%s\n", SessionNo, messageType, logging.TLSRecordType[messageType])
-			default:
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with unknown message/handshake type: %d/%s\n", SessionNo, contentType, logging.TLSHandshakeType[contentType])
-				goto END
-			}
-		}
 	}
 
 	if !serverHello.ReadUint16(&legacyVersion) {
@@ -507,6 +498,76 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			tlsVersion = fmt.Sprintf("%x", version)
 			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello TLS Version negotiated: %d/%s\n", SessionNo, version, logging.TLSString[tlsVersion])
 
+		}
+	}
+
+	for !handshakeMessage.Empty() {
+		if !handshakeMessage.ReadUint8(&contentType) {
+			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake could not read message type\n", SessionNo)
+			goto END
+		} else {
+			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS Server Hello message: %d/%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
+			if !handshakeMessage.ReadUint16(&legacyRecordVersion) {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read handshake legacy record version\n", SessionNo)
+				goto END
+			} else {
+				hex := fmt.Sprintf("%x", legacyRecordVersion)
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS legacy record version: %d/%s\n", SessionNo, legacyRecordVersion, logging.TLSString[hex])
+			}
+
+			if !handshakeMessage.ReadUint16(&messageLength) {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read full handshake message\n", SessionNo)
+				goto END
+			} else {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake message length: %d\n", SessionNo, messageLength)
+			}
+			if !handshakeMessage.ReadUint8(&messageType) {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read full handshake message\n", SessionNo)
+				goto END
+			} else {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake message type: %d\n", SessionNo, messageType)
+			}
+			if !handshakeMessage.ReadUint24LengthPrefixed(&handshakeBody) {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake record with no length\n", SessionNo)
+				goto END
+
+			} else {
+				//771/303/TLS 1.2
+				//772/304/TLS 1.3
+
+				switch tlsVersion {
+				case "303": // TLS 1.2
+					switch messageType {
+					case 11: // certificate
+						var certList cryptobyte.String
+						if !handshakeBody.ReadUint24LengthPrefixed(&certList) {
+							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake failed to read certificate list\n", SessionNo)
+							goto END
+						}
+
+						for !certList.Empty() {
+							var certBytes cryptobyte.String
+							if !certList.ReadUint24LengthPrefixed(&certBytes) {
+								logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake failed to read certificate list\n", SessionNo)
+								goto END
+							}
+							parsedCert, err := x509.ParseCertificate(certBytes)
+							if err != nil {
+								logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake failed to parse certificate\n", SessionNo)
+								goto END
+							}
+							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Certificate Issuer: %s\n", SessionNo, parsedCert.Issuer.String())
+						}
+					default:
+						logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with handshake type: %d/%s\n", SessionNo, messageType, logging.TLSHandshakeType[messageType])
+						// goto END
+					}
+				case "304": // TLS 1.3
+				default:
+					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record for version: %d/%s\n", SessionNo, version, logging.TLSString[tlsVersion])
+					// goto END
+				}
+			}
 		}
 	}
 
