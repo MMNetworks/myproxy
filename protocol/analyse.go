@@ -6,6 +6,7 @@ import (
 	"golang.org/x/crypto/cryptobyte"
 	"myproxy/logging"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -49,7 +50,7 @@ func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string)
 	//	}
 	name, err := analyseAsTLSPacketResponse(SessionNo, packet)
 	if err == nil {
-		return "TLS", "TLS version: " + name
+		return "TLS", "Version: " + name
 	} else {
 		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a TLS packet\n", SessionNo)
 	}
@@ -249,7 +250,8 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 			goto END
 
 		}
-		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello supported cipher suite: %d/%s\n", SessionNo, ciphersuite, logging.TLSCipher[fmt.Sprintf("%x", ciphersuite)])
+		hex := fmt.Sprintf("%x", ciphersuite)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Client Hello supported cipher suite: %d/%s\n", SessionNo, ciphersuite, logging.TLSCipher[hex])
 	}
 
 	if !clientHello.ReadUint8LengthPrefixed((*cryptobyte.String)(&legacyCompressionMethods)) {
@@ -346,6 +348,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	var random []byte
 	var legacySessionID []byte
 	var ciphersuite uint16
+	var version uint16
 	var legacyCompressionMethod uint8
 	// Look for SNI in here
 	var extensionsBytes cryptobyte.String
@@ -356,6 +359,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	var sniName cryptobyte.String
 	var tlsVersion string = "Unknown"
 	var tlsCipher string = "Unknown"
+	var rString string
 
 	handshakeMessage := cryptobyte.String(packet)
 
@@ -439,8 +443,8 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello cipher suite\n", SessionNo)
 		goto END
 	}
-	logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello negotiated cipher suite: %d/%s\n", SessionNo, ciphersuite, logging.TLSCipher[fmt.Sprintf("%x", ciphersuite)])
 	tlsCipher = fmt.Sprintf("%x", ciphersuite)
+	logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello negotiated cipher suite: %d/%s\n", SessionNo, ciphersuite, logging.TLSCipher[tlsCipher])
 
 	if !serverHello.ReadUint8(&legacyCompressionMethod) {
 		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello compression methods\n", SessionNo)
@@ -495,7 +499,6 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			}
 		} else if logging.TLSExtensionType[extType] == "supported_versions" {
 			// negotiated TLS Versions
-			var version uint16
 			if !extData.ReadUint16(&version) {
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read Server Hello TLS Version list\n", SessionNo)
 				goto END
@@ -507,7 +510,17 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 		}
 	}
 
-	return tlsVersion + ":" + tlsCipher, nil
+	rString = logging.TLSString[tlsVersion]
+	if logging.TLSString[tlsVersion] == "" {
+		rString = strconv.Itoa(int(version))
+	}
+	if logging.TLSCipher[tlsCipher] == "" {
+		rString = rString + ":" + strconv.Itoa(int(ciphersuite))
+	} else {
+		rString = rString + ":" + logging.TLSCipher[tlsCipher]
+	}
+
+	return rString, nil
 
 END:
 	return "", errors.New("Not a TLS stream")
