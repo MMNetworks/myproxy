@@ -506,7 +506,11 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake could not read message type\n", SessionNo)
 			goto END
 		} else {
-			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS Server Hello message: %d/%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
+			logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake message: %d/%s\n", SessionNo, contentType, logging.TLSRecordType[contentType])
+			if logging.TLSRecordType[contentType] == "application_data" {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake is TLS 1.3 application data\n", SessionNo)
+				break
+			}
 			if !handshakeMessage.ReadUint16(&legacyRecordVersion) {
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read handshake legacy record version\n", SessionNo)
 				goto END
@@ -527,13 +531,15 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			} else {
 				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake message type: %d\n", SessionNo, messageType)
 			}
-			if !handshakeMessage.ReadUint24LengthPrefixed(&handshakeBody) {
-				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake record with no length\n", SessionNo)
-				goto END
-
+			if logging.TLSRecordType[contentType] == "change_cipher_spec" {
+				logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake is TLS 1.3 change_cipher_spec with no data\n", SessionNo)
 			} else {
 				//771/303/TLS 1.2
 				//772/304/TLS 1.3
+				if !handshakeMessage.ReadUint24LengthPrefixed(&handshakeBody) {
+					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read full handshake message\n", SessionNo)
+					goto END
+				}
 
 				switch tlsVersion {
 				case "303": // TLS 1.2
@@ -559,12 +565,12 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 							logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Certificate Issuer: %s\n", SessionNo, parsedCert.Issuer.String())
 						}
 					default:
-						logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record with handshake type: %d/%s\n", SessionNo, messageType, logging.TLSHandshakeType[messageType])
+						logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello with message type: %d/%s\n", SessionNo, messageType, logging.TLSHandshakeType[messageType])
 						// goto END
 					}
 				case "304": // TLS 1.3
 				default:
-					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Server Hello handshake record for version: %d/%s\n", SessionNo, version, logging.TLSString[tlsVersion])
+					logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d TLS handshake record for version: %d/%s\n", SessionNo, version, logging.TLSString[tlsVersion])
 					// goto END
 				}
 			}
