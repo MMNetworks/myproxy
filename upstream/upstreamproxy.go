@@ -33,12 +33,15 @@ func c2s(conn net.Conn) string {
 
 type ProxyRoundTripper struct {
 	GetContext func() *httpproxy.Context
+	proxyMutex sync.Mutex
 }
 
 func (pR *ProxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := pR.GetContext()
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 
+	pR.proxyMutex.Lock()
+	defer pR.proxyMutex.Unlock()
 	proxy := ctx.UpstreamProxy
 	if proxy == "" {
 		logging.Printf("ERROR", "proxyRoundTrip: SessionID:%d upstream proxy not set.\n", ctx.SessionNo)
