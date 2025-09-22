@@ -503,7 +503,6 @@ func runProxy(args []string) {
 		logging.Printf("INFO", "runProxy: Wireshark inspection not enabled\n")
 	}
 
-	
 	logging.Printf("INFO", "runProxy: Started version: %s\n", Version)
 	// Listen...
 	logging.Printf("INFO", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)

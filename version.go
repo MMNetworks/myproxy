@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"time"
 	"myproxy/service"
+	"time"
 )
 
 func init() {
