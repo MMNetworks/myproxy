@@ -226,6 +226,12 @@ func acceptWireshark(listener net.Listener) {
 }
 
 func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, dst string, data []byte) error {
+	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
+
+	if !readconfig.Config.Wireshark.Enable {
+		return nil
+	}
+
 	timeStamp := time.Now()
 	wiresharkData := wiresharkStruct{logTime: timeStamp, state: tcp, sessionNo: sessionNo, request: isRequest, source: src, destination: dst, data: data}
 
@@ -239,10 +245,6 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	var err error
 	var tcpSeq uint32
 	var tcpAck uint32
-
-	if !readconfig.Config.Wireshark.Enable {
-		return nil
-	}
 
 	tcpMutex.Lock()
 	tcpState := tcp.GetTCPState()
