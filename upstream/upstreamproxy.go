@@ -17,8 +17,8 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 	"sync"
+	"time"
 	// "github.com/yassinebenaid/godump"
 )
 
