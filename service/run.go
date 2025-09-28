@@ -399,7 +399,7 @@ func runProxy(args []string) {
 		return
 	}
 
-	go logging.Processor()
+	go logging.LogProcessor()
 
 	logging.Printf("INFO", "runProxy: Logging.Level: %s\n", readconfig.Config.Logging.Level)
 	logging.Printf("INFO", "runProxy: Logging.Trace: %t\n", readconfig.Config.Logging.Trace)

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"myproxy/readconfig"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -552,76 +554,96 @@ type logStruct struct {
 
 var logChan = make(chan logStruct, 65000) // Buffered channel
 
-func Processor() {
+func LogProcessor() {
 	var logBuffer *bufio.Writer
 	var accessBuffer *bufio.Writer
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
+	var logFile *os.File
+	var accessLogFile *os.File
 
 	// Buffer writing to OS files
 
-	logFilename := readconfig.Config.Logging.File
-	accessLog := readconfig.Config.Logging.AccessLog
-
-	if strings.ToUpper(logFilename) != "STDOUT" && logFilename != "" {
-		if strings.ToUpper(logFilename) != "SYSLOG" && strings.ToUpper(logFilename) != "EVENTLOG" {
-			// Log buffered to local Unix file
-			logFile, err := os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-			if err != nil {
-				timeStamp := time.Now().Format(time.RFC1123)
-				fmt.Printf("%s ERROR: Could not open logfile %s\n", timeStamp, logFilename)
-				return
-			}
-			defer logFile.Close()
-			logBuffer = bufio.NewWriterSize(logFile, 64*1024) // 64KB buffer
-		} // else write to system log
-	} else {
-		// Log buffered to stdout
-		logFilename = "STDOUT"
-		logBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
-	}
-	if strings.ToUpper(accessLog) != "STDOUT" && accessLog != "" {
-		if strings.ToUpper(accessLog) != "SYSLOG" && strings.ToUpper(accessLog) != "EVENTLOG" {
-			// Log buffered to local Unix file
-			accessLogFile, err := os.OpenFile(accessLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
-			if err != nil {
-				timeStamp := time.Now().Format(time.RFC1123)
-				fmt.Printf("%s ERROR: Could not open accesslog file %s\n", timeStamp, accessLog)
-				return
-			}
-			defer accessLogFile.Close()
-			accessBuffer = bufio.NewWriterSize(accessLogFile, 64*1024) // 64KB buffer
-		} // else write to sysetm log
-	} else {
-		// Log buffered to stdout
-		accessLog = "STDOUT"
-		accessBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
-	}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP)
 
 	for {
-		select {
-		case lStruct, ok := <-logChan:
-			if !ok {
-				logBuffer.Flush()
-				accessBuffer.Flush()
-				timeStamp := time.Now().Format(time.RFC1123)
-				fmt.Printf("%s ERROR: Processor: channel error\n", timeStamp)
-				return
-			}
-			if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(logFilename) == "EVENTLOG" {
-				_systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
-			} else {
-				if strings.ToUpper(lStruct.filename) == strings.ToUpper(logFilename) {
-					_osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
-				} else if strings.ToUpper(lStruct.filename) == strings.ToUpper(accessLog) {
-					_osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
-				} else {
-					_osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")
+
+		logFilename := readconfig.Config.Logging.File
+		accessLog := readconfig.Config.Logging.AccessLog
+
+		if strings.ToUpper(logFilename) != "STDOUT" && logFilename != "" {
+			if strings.ToUpper(logFilename) != "SYSLOG" && strings.ToUpper(logFilename) != "EVENTLOG" {
+				// Log buffered to local Unix file
+				var err error
+				logFile, err = os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+				if err != nil {
+					timeStamp := time.Now().Format(time.RFC1123)
+					fmt.Printf("%s ERROR: LogProcessor: Could not open logfile %s\n", timeStamp, logFilename)
+					return
 				}
+				defer logFile.Close()
+				logBuffer = bufio.NewWriterSize(logFile, 64*1024) // 64KB buffer
+			} // else write to system log
+		} else {
+			// Log buffered to stdout
+			logFilename = "STDOUT"
+			logBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
+		}
+		if strings.ToUpper(accessLog) != "STDOUT" && accessLog != "" {
+			if strings.ToUpper(accessLog) != "SYSLOG" && strings.ToUpper(accessLog) != "EVENTLOG" {
+				// Log buffered to local Unix file
+				var err error
+				accessLogFile, err = os.OpenFile(accessLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+				if err != nil {
+					timeStamp := time.Now().Format(time.RFC1123)
+					fmt.Printf("%s ERROR: LogProcessor: Could not open accesslog file %s\n", timeStamp, accessLog)
+					return
+				}
+				defer accessLogFile.Close()
+				accessBuffer = bufio.NewWriterSize(accessLogFile, 64*1024) // 64KB buffer
+			} // else write to sysetm log
+		} else {
+			// Log buffered to stdout
+			accessLog = "STDOUT"
+			accessBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
+		}
+
+	flush:
+		for {
+			select {
+			case s := <-sig:
+				if s == syscall.SIGHUP {
+					logBuffer.Flush()
+					accessBuffer.Flush()
+					logFile.Close()
+					accessLogFile.Close()
+					// read new file name
+					break flush
+				}
+			case lStruct, ok := <-logChan:
+				if !ok {
+					logBuffer.Flush()
+					accessBuffer.Flush()
+					timeStamp := time.Now().Format(time.RFC1123)
+					fmt.Printf("%s ERROR: LogProcessor: channel error\n", timeStamp)
+					return
+				}
+				if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(logFilename) == "EVENTLOG" {
+					_systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
+				} else {
+					if strings.ToUpper(lStruct.filename) == strings.ToUpper(logFilename) {
+						_osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
+					} else if strings.ToUpper(lStruct.filename) == strings.ToUpper(accessLog) {
+						_osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
+					} else {
+						_osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")
+					}
+				}
+			case <-ticker.C:
+				logBuffer.Flush()    // periodic flush
+				accessBuffer.Flush() // periodic flush
 			}
-		case <-ticker.C:
-			logBuffer.Flush()    // periodic flush
-			accessBuffer.Flush() // periodic flush
 		}
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var Config *Schema
@@ -104,6 +104,12 @@ type Schema struct {
 	Clamd      Clamd      `yaml:"clamd"`
 }
 
+func printf(level string, format string, a ...any) (int, error) {
+	message := fmt.Sprintf(format, a...)
+	timeStamp := time.Now().Format(time.RFC1123)
+	return fmt.Printf("%s %s: %s", timeStamp, level, message)
+}
+
 func ReadConfig(configFilename string) (*Schema, error) {
 
 	osType := runtime.GOOS
@@ -115,7 +121,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
 	if err != nil {
-		log.Printf("ERROR: Readconfig: %v\n", err)
+		printf("ERROR", "Readconfig: %v\n", err)
 		return nil, err
 	}
 	defer file.Close()
@@ -126,7 +132,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	err = decoder.Decode(&configOut)
 
 	if err != nil {
-		log.Printf("ERROR: ReadConfig: decoding file: %v\n", err)
+		printf("ERROR", "ReadConfig: decoding file: %v\n", err)
 		return nil, err
 	}
 	if configOut.Logging.File == "" {
@@ -146,20 +152,20 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			if fileMode.IsRegular() {
 				logFile, err = os.OpenFile(configOut.Logging.File, os.O_RDWR, 0600)
 				if err != nil {
-					log.Printf("ERROR: ReadConfig: logfile %s not writeable\n", configOut.Logging.File)
+					printf("ERROR", "ReadConfig: logfile %s not writeable\n", configOut.Logging.File)
 					return nil, err
 				} else {
-					log.Printf("WARNING: ReadConfig: logfile %s exists. Will append \n", configOut.Logging.File)
+					printf("WARNING", "ReadConfig: logfile %s exists. Will append \n", configOut.Logging.File)
 				}
 				defer logFile.Close()
 			}
 		} else {
 			logFile, err = os.OpenFile(configOut.Logging.File, os.O_RDWR|os.O_CREATE, 0600)
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: logfile %s cannot be created\n", configOut.Logging.File)
+				printf("ERROR", "ReadConfig: logfile %s cannot be created\n", configOut.Logging.File)
 				return nil, err
 			} else {
-				log.Printf("INFO: ReadConfig: logfile %s created.\n", configOut.Logging.File)
+				printf("INFO", "ReadConfig: logfile %s created.\n", configOut.Logging.File)
 			}
 			defer logFile.Close()
 		}
@@ -181,33 +187,33 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			if fileMode.IsRegular() {
 				logFile, err = os.OpenFile(configOut.Logging.AccessLog, os.O_RDWR, 0600)
 				if err != nil {
-					log.Printf("ERROR: ReadConfig: access logfile %s not writeable\n", configOut.Logging.AccessLog)
+					printf("ERROR", "ReadConfig: access logfile %s not writeable\n", configOut.Logging.AccessLog)
 					return nil, err
 				} else {
-					log.Printf("WARNING: ReadConfig: access logfile %s exists. Will append \n", configOut.Logging.AccessLog)
+					printf("WARNING", "ReadConfig: access logfile %s exists. Will append \n", configOut.Logging.AccessLog)
 				}
 				defer logFile.Close()
 			}
 		} else {
 			logFile, err = os.OpenFile(configOut.Logging.AccessLog, os.O_RDWR|os.O_CREATE, 0600)
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: access logfile %s cannot be created\n", configOut.Logging.AccessLog)
+				printf("ERROR", "ReadConfig: access logfile %s cannot be created\n", configOut.Logging.AccessLog)
 				return nil, err
 			} else {
-				log.Printf("INFO: ReadConfig: access logfile %s created.\n", configOut.Logging.AccessLog)
+				printf("INFO", "ReadConfig: access logfile %s created.\n", configOut.Logging.AccessLog)
 			}
 			defer logFile.Close()
 		}
 	}
 
 	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" && configOut.PAC.Type != "" {
-		log.Printf("ERROR: ReadConfig: reading PAC type field: %s\n", configOut.PAC.Type)
-		log.Printf("ERROR: ReadConfig: only FILE and URL supported\n")
+		printf("ERROR", "ReadConfig: reading PAC type field: %s\n", configOut.PAC.Type)
+		printf("ERROR", "ReadConfig: only FILE and URL supported\n")
 		return nil, errors.New("Wrong PAC type")
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File == "" {
-		log.Printf("ERROR: ReadConfig: reading PAC type FILE: %s\n", configOut.PAC.File)
-		log.Printf("ERROR: ReadConfig: FILE needs a filename\n")
+		printf("ERROR", "ReadConfig: reading PAC type FILE: %s\n", configOut.PAC.File)
+		printf("ERROR", "ReadConfig: FILE needs a filename\n")
 		return nil, errors.New("PAC File name missing")
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File != "" {
@@ -218,20 +224,20 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		configOut.PAC.File = pacFilepath
 		_, err = os.Stat(configOut.PAC.File)
 		if errors.Is(err, os.ErrNotExist) || err != nil {
-			log.Printf("ERROR: ReadConfig: Can not read PAC file %s\n", configOut.PAC.File)
+			printf("ERROR", "ReadConfig: Can not read PAC file %s\n", configOut.PAC.File)
 			return nil, err
 		}
 	}
 
 	if configOut.PAC.Type == "URL" && configOut.PAC.URL == "" {
-		log.Printf("ERROR: ReadConfig: reading PAC type URL: %s\n", configOut.PAC.URL)
-		log.Printf("ERROR: ReadConfig: URL needs a url\n")
+		printf("ERROR", "ReadConfig: reading PAC type URL: %s\n", configOut.PAC.URL)
+		printf("ERROR", "ReadConfig: URL needs a url\n")
 		return nil, errors.New("PAC URL missing")
 	}
 	for i, v := range configOut.Proxy.Authentication {
 		if v != "ntlm" && v != "negotiate" && v != "basic" {
-			log.Printf("ERROR: ReadConfig: reading authentication field: %d:%s\n", i+1, v)
-			log.Printf("ERROR: ReadConfig: only ntln,negotiate and basic are supported\n")
+			printf("ERROR", "ReadConfig: reading authentication field: %d:%s\n", i+1, v)
+			printf("ERROR", "ReadConfig: only ntln,negotiate and basic are supported\n")
 			return nil, errors.New("Invalid Authentication type")
 		}
 	}
@@ -240,8 +246,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			fmt.Printf("Enter NTLM Password for %s: ", configOut.Proxy.NtlmUser)
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: NTLM Password read error\n")
-				fmt.Printf("ReadConfig: NTLM Password read error\n")
+				printf("ERROR", "ReadConfig: NTLM Password read error\n")
 				return nil, err
 			}
 			fmt.Printf("\n")
@@ -256,7 +261,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			configOut.Proxy.KerberosConfig = kconfigFilepath
 			_, err = os.Stat(configOut.Proxy.KerberosConfig)
 			if errors.Is(err, os.ErrNotExist) || err != nil {
-				log.Printf("ERROR: ReadConfig: Can not read Kerberos config file %s\n", configOut.Proxy.KerberosConfig)
+				printf("ERROR", "ReadConfig: Can not read Kerberos config file %s\n", configOut.Proxy.KerberosConfig)
 				return nil, err
 			}
 		}
@@ -265,8 +270,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			fmt.Printf("Enter Kerberos Password for %s: ", configOut.Proxy.KerberosUser)
 			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: Kerberos Password read error\n")
-				fmt.Printf("ReadConfig: Kerberos Password read error\n")
+				printf("ERROR", "ReadConfig: Kerberos Password read error\n")
 				return nil, err
 			}
 			fmt.Printf("\n")
@@ -280,15 +284,14 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			configOut.Proxy.KerberosCache = ccacheFilepath
 		}
 	} else {
-		log.Printf("INFO: ReadConfig: NTLM and Kerberos details are not used with SSPI\n")
+		printf("INFO", "ReadConfig: NTLM and Kerberos details are not used with SSPI\n")
 	}
 
 	if configOut.Proxy.BasicUser != "" && configOut.Proxy.BasicPass == "" {
 		fmt.Printf("Enter Basic Password for %s: ", configOut.Proxy.BasicUser)
 		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
 		if err != nil {
-			log.Printf("ERROR: ReadConfig: Basic  Password read error\n")
-			fmt.Printf("ReadConfig: Basic  Password read error\n")
+			printf("ERROR", "ReadConfig: Basic  Password read error\n")
 			return nil, err
 		}
 		fmt.Printf("\n")
@@ -324,13 +327,13 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if configOut.MITM.Keyfile != "" {
 			buf, err := os.ReadFile(configOut.MITM.Keyfile)
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: could not read Keyfile file: %v\n", err)
+				printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
 				return nil, err
 			}
 			configOut.MITM.Key = string(buf)
 			buf, err = os.ReadFile(configOut.MITM.Certfile)
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: could not read Keyfile file: %v\n", err)
+				printf("ERROR", "ReadConfig: could not read Keyfile file: %v\n", err)
 				return nil, err
 			}
 			configOut.MITM.Cert = string(buf)
@@ -338,7 +341,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if configOut.MITM.IncExcFile != "" {
 			buf, err := os.ReadFile(configOut.MITM.IncExcFile)
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: could not read Include/Exclude file: %v\n", err)
+				printf("ERROR", "ReadConfig: could not read Include/Exclude file: %v\n", err)
 				return nil, err
 			}
 			bufStr := strings.Split(string(buf), "\n")
@@ -355,7 +358,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			continue
 		}
 		if !hasThreeEntries {
-			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s\n", i+1, v)
+			printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s\n", i+1, v)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
 		spos := strings.Index(v, ";")
@@ -370,7 +373,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {
-			log.Printf("ERROR: ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
+			printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
 		if hasFourEntries {
@@ -398,14 +401,14 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			continue
 		}
 		if !hasThreeEntries {
-			log.Printf("ERROR: ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s\n", i+1, v)
+			printf("ERROR", "ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s\n", i+1, v)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
 		spos := strings.Index(v, ";")
 		cidr := v[:spos]
 		epos := strings.Index(cidr, "!")
 		cpos := strings.Index(cidr, "/")
-		// log.Printf("DEBUG: ReadConfig: Include/Exclude %s, Exclamation: %d, Semicolon: %d\n",v,epos,spos)
+		// printf("DEBUG","ReadConfig: Include/Exclude %s, Exclamation: %d, Semicolon: %d\n",v,epos,spos)
 		if epos == 0 {
 			cidr = cidr[1:]
 		}
@@ -414,7 +417,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {
-			log.Printf("ERROR: ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
+			printf("ERROR", "ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
 		if hasFourEntries {
@@ -423,7 +426,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			timeoutStr := v[rpos+1:]
 			_, err := strconv.Atoi(timeoutStr)
 			if err != nil {
-				log.Printf("ERROR: ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
+				printf("ERROR", "ReadConfig: wrong syntax of WebSocket Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
 				return nil, errors.New("Invalid Include/Exclude line")
 			}
 		}
@@ -444,7 +447,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {
-			log.Printf("ERROR: ReadConfig: wrong syntax of Wireshark Include/Exclude field: %d:%s err:%v\n", i+1, cidr, err)
+			printf("ERROR", "ReadConfig: wrong syntax of Wireshark Include/Exclude field: %d:%s err:%v\n", i+1, cidr, err)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
 	}
