@@ -1208,8 +1208,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 							spos := strings.Index(description, ":")
 							tlsInfo := description[spos+2:]
 							spos = strings.Index(tlsInfo, ":")
-							tlsVersion := logging.TLSString[tlsInfo[:spos]]
-							tlsCipher := logging.TLSCipher[tlsInfo[spos+1:]]
+							tlsVersion := tlsInfo[:spos]
+							tlsCipher := tlsInfo[spos+1:]
 							if tlsVersion == "" {
 								tlsVersion = "TLS ?"
 							}
