@@ -1757,7 +1757,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		}
 		logging.Printf("DEBUG", "doResponse: SessionID:%d connection upgrade: %s\n", ctx.SessionNo, upgrade)
 		if !HasPort.MatchString(host) {
-			switch req.URL.Scheme {
+			switch r.URL.Scheme {
 			case "http":
 				host += ":80"
 			case "https":
