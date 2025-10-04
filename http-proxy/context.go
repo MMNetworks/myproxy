@@ -1756,6 +1756,16 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			host = r.Host
 		}
 		logging.Printf("DEBUG", "doResponse: SessionID:%d connection upgrade: %s\n", ctx.SessionNo, upgrade)
+		if !HasPort.MatchString(host) {
+			switch req.URL.Scheme {
+			case "http":
+				host += ":80"
+			case "https":
+				host += ":443"
+			default:
+				host += ":443"
+			}
+		}
 		ctx.WebsocketState.WebsocketConn, err = ctx.Dial(ctx, "tcp", host)
 		if err != nil {
 			logging.Printf("ERROR", "doResponse: SessionID:%d Connection to host %s failed: %v\n", ctx.SessionNo, host, err)
