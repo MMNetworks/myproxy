@@ -135,9 +135,15 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 				}
 
 				if n > offset+payloadLen-dataLen {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket data stream contains second payload: %d>%d bytes\n", sessionNo, n, offset+payloadLen-dataLen)
+					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket data stream contains second payload: %d>%d bytes\n", sessionNo, n, offset+payloadLen-dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Offset: %d Payload length: %d DataLen: %d\n", sessionNo, offset, payloadLen, dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Masked bit: %t FIN bit: %t\n", sessionNo, masked, fin)
+
+					// Need to work on processing fragments
+					for i := offset + payloadLen + 1; i <= n; i++ {
+						buf[i] = localBuf[i]
+						mbuf[i] = localBuf[i]
+					}
 				}
 
 				switch opcode {
@@ -169,9 +175,14 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 				}
 
 				if n > offset+payloadLen-dataLen {
-					logging.Printf("ERROR", "WebsocketRead: SessionID:%d Websocket data stream contains second payload: %d>%d bytes\n", sessionNo, n, offset+payloadLen-dataLen)
+					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket data stream contains second payload: %d>%d bytes\n", sessionNo, n, offset+payloadLen-dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Offset: %d Payload length: %d DataLen: %d\n", sessionNo, offset, payloadLen, dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Masked bit: %t FIN bit: %t\n", sessionNo, masked, fin)
+					// Need to work on processing fragments
+					for i := offset + payloadLen + 1; i <= n; i++ {
+						buf[i] = localBuf[i]
+						mbuf[i] = localBuf[i]
+					}
 				}
 
 				switch opcode {
