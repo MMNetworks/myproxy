@@ -1767,6 +1767,31 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		ctx.WebsocketState.WebsocketConn, err = ctx.Dial(ctx, "tcp", host)
+		if r.URL.Scheme == "https" {
+			// TLS handshake to origin
+			serverName := r.URL.Hostname()
+			logging.Printf("DEBUG", "doResponse: SessionID:%d Setup TLS connection to %s\n", ctx.SessionNo, serverName)
+			tlsConf := ctx.TLSConfig
+			if tlsConf == nil {
+				tlsConf = &tls.Config{}
+			}
+			if tlsConf.ServerName == "" {
+				clone := tlsConf.Clone()
+				clone.ServerName = serverName
+				tlsConf = clone
+			}
+			tlsConn := tls.Client(ctx.WebsocketState.WebsocketConn, tlsConf)
+			if err = tlsConn.Handshake(); err != nil {
+				logging.Printf("ERROR", "doResponse: SessionID:%d TLS handshake to host %s failed: %v\n", ctx.SessionNo, serverName, err)
+			} else {
+				// After this point, tlsConn is the underlying socket. Avoid closing conn twice.
+				ctx.WebsocketState.WebsocketConn = tlsConn
+				state := tlsConn.ConnectionState()
+				ctx.AccessLog.Protocol = tls.VersionName(state.Version) + ":" + tls.CipherSuiteName(state.CipherSuite) + ":" + tlsConf.ServerName
+			}
+
+		}
+
 		if err != nil {
 			logging.Printf("ERROR", "doResponse: SessionID:%d Connection to host %s failed: %v\n", ctx.SessionNo, host, err)
 			return err
