@@ -140,7 +140,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Masked bit: %t FIN bit: %t\n", sessionNo, masked, fin)
 
 					// Need to work on processing fragments
-					for i := offset + payloadLen + 1; i <= n; i++ {
+					for i := offset+payloadLen+1 ; i <= n ; i++ {
 						buf[i] = localBuf[i]
 						mbuf[i] = localBuf[i]
 					}
@@ -153,7 +153,8 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 					//logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket string:\n%s\n\n", sessionNo, string(payload[:payloadLen]))
 				}
 
-				bufLen := offset + payloadLen
+				// bufLen := offset + payloadLen
+				bufLen := n
 				payloadLen = 0
 				dataLen = 0
 				return bufLen, nil
@@ -179,7 +180,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Offset: %d Payload length: %d DataLen: %d\n", sessionNo, offset, payloadLen, dataLen)
 					logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket Masked bit: %t FIN bit: %t\n", sessionNo, masked, fin)
 					// Need to work on processing fragments
-					for i := offset + payloadLen + 1; i <= n; i++ {
+					for i := offset+payloadLen+1 ; i <= n ; i++ {
 						buf[i] = localBuf[i]
 						mbuf[i] = localBuf[i]
 					}
@@ -192,7 +193,8 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 					//logging.Printf("DEBUG", "WebsocketRead: SessionID:%d Websocket string:\n%s\n\n", sessionNo, string(payload[:payloadLen]))
 				}
 
-				bufLen := offset + payloadLen
+				//bufLen := offset + payloadLen
+				bufLen := n
 				payloadLen = 0
 				dataLen = 0
 				return bufLen, nil
