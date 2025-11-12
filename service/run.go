@@ -395,8 +395,7 @@ func runProxy(args []string) {
 	if err != nil {
 		timeStamp := time.Now().Format(time.RFC1123)
 		fmt.Printf("%s ERROR: runProxy: configuration read error: %v\n", timeStamp, err)
-		// Allow logging go routine time to log it ;-)
-		return
+		os.Exit(1)
 	}
 
 	go logging.LogProcessor()
