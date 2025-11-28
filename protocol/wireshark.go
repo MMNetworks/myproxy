@@ -261,8 +261,9 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	dstIP := dst
 	srcPort := -1
 	dstPort := -1
-	cpos := strings.Index(src, ":")
-	if cpos != -1 {
+	cpos := strings.LastIndex(src, ":")
+	v6pos := strings.Index(src, "]")
+	if cpos != -1 && cpos > v6pos {
 		srcIP = src[:cpos]
 		srcPort, err = strconv.Atoi(src[cpos+1:])
 		if err != nil {
@@ -271,8 +272,9 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 		}
 
 	}
-	cpos = strings.Index(dst, ":")
-	if cpos != -1 {
+	cpos = strings.LastIndex(dst, ":")
+	v6pos = strings.Index(dst, "]")
+	if cpos != -1 && cpos > v6pos {
 		dstIP = dst[:cpos]
 		dstPort, err = strconv.Atoi(dst[cpos+1:])
 		if err != nil {

@@ -93,7 +93,7 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = ""
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "PrxDial: SessionID:%d Failed to connect to % via proxy %s. Response status: %s\n", ctx.SessionNo, address, proxy, resp.Status)
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Failed to connect to %s via proxy %s. Response status: %s\n", ctx.SessionNo, address, proxy, resp.Status)
 			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
 		}
 	}
