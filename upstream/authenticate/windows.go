@@ -35,7 +35,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 	defer securityContext.Release()
 
 	req.Header.Add("Proxy-Authorization", fmt.Sprintf("NTLM %s", base64.StdEncoding.EncodeToString(ntlmToken)))
-	ntlmResp, err := Rt.RoundTrip(req)
+	ntlmResp, err := ctx.Rt.RoundTrip(req)
 	if err != nil {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d RoundTrip error: %v\n", ctx.SessionNo, err)
 		OverwriteResponse(ctx, resp, ntlmResp)
@@ -78,7 +78,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 	logging.Printf("DEBUG", "DoNTLMProxyAuth: SessionID:%d NTLM authorization: '%s'\n", ctx.SessionNo, base64.StdEncoding.EncodeToString(authenticateMessage))
 	req.Header.Del("Proxy-Authorization")
 	req.Header.Add("Proxy-Authorization", fmt.Sprintf("NTLM %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
-	ntlmResp, err = Rt.RoundTrip(req)
+	ntlmResp, err = ctx.Rt.RoundTrip(req)
 	if ntlmResp == nil {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d NTLM Authentication failed. %v\n", ctx.SessionNo, err)
 		return errors.New("empty response received")
@@ -133,7 +133,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	defer securityContext.Release()
 
 	req.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString(negoToken)))
-	negoResp, err := Rt.RoundTrip(req)
+	negoResp, err := ctx.Rt.RoundTrip(req)
 	if err != nil {
 		logging.Printf("ERROR", "DoNegotiateProxyAuth: SessionID:%d Unexpected RoundTrip error: %v\n", ctx.SessionNo, err)
 		if negoResp == nil {
@@ -171,7 +171,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		//      logging.Printf("INFO", "Proxy: DoNegotiateProxyAuth: ntlm> negotiate authorization: '%s'\n", base64.StdEncoding.EncodeToString(authenticateMessage))
 		//      r.Header.Del("Proxy-Authorization")
 		//      r.Header.Add("Proxy-Authorization", fmt.Sprintf("Negotiate %s", base64.StdEncoding.EncodeToString(authenticateMessage)))
-		//      negoResp, err = Rt.RoundTrip(req)
+		//      negoResp, err = ctx.Rt.RoundTrip(req)
 		OverwriteResponse(ctx, resp, negoResp)
 		return errors.New("additional negotiate round required")
 		//      } else if negoResp.StatusCode != http.StatusOK {

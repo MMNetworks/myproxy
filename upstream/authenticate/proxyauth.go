@@ -34,12 +34,12 @@ func (pA *proxyAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	return http.ReadResponse(bufio.NewReader(conn), req)
 }
 
-var Rt *proxyAuthRoundTripper
+// var Rt *proxyAuthRoundTripper
 
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var err error
-	Rt = &proxyAuthRoundTripper{
+	ctx.Rt = &proxyAuthRoundTripper{
 		GetContext: func() *httpproxy.Context {
 			return ctx
 		},
@@ -100,7 +100,7 @@ func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Resp
 	logging.Printf("DEBUG", "DoBasicProxyAuth: SessionID:%d encoded string: %s\n", ctx.SessionNo, base64.StdEncoding.EncodeToString([]byte(proxyAuth)))
 
 	req.Header.Add("Proxy-Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(proxyAuth))))
-	basicResp, err := Rt.RoundTrip(req)
+	basicResp, err := ctx.Rt.RoundTrip(req)
 	if err != nil {
 		logging.Printf("ERROR", "DoBasicroxyAuth: SessionID:%d Unexpected RoundTrip error: %v\n", ctx.SessionNo, err)
 		if basicResp == nil {
