@@ -28,8 +28,11 @@ type PAC struct {
 	CacheTime int    `yaml:"cachetime"`
 }
 type Listen struct {
-	IP   string `yaml:"ip"`
-	Port string `yaml:"port"`
+	IP           string `yaml:"ip"`
+	Port         string `yaml:"port"`
+	ReadTimeout  int    `yaml:"readtimeout"`
+	WriteTimeout int    `yaml:"writetimeout"`
+	IdleTimeout  int    `yaml:"idletimeout"`
 }
 type Logging struct {
 	Level        string `yaml:"level"`
@@ -456,6 +459,9 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	}
 	if configOut.Listen.Port == "" {
 		configOut.Listen.Port = "9080"
+	}
+	if configOut.Listen.IdleTimeout == 0 {
+		configOut.Listen.IdleTimeout = 300
 	}
 	if configOut.Wireshark.IP == "" {
 		configOut.Wireshark.IP = "127.0.0.1"

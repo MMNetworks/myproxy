@@ -509,11 +509,18 @@ func runProxy(args []string) {
 	server := &http.Server{
 		Addr:           listen,
 		Handler:        prx,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		IdleTimeout:    120 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1Mb
 	}
+	if readconfig.Config.Listen.ReadTimeout > 0 {
+		server.ReadTimeout = time.Duration(readconfig.Config.Listen.ReadTimeout) * time.Second
+	}
+	if readconfig.Config.Listen.WriteTimeout > 0 {
+		server.ReadTimeout = time.Duration(readconfig.Config.Listen.WriteTimeout) * time.Second
+	}
+	if readconfig.Config.Listen.IdleTimeout > 0 {
+		server.ReadTimeout = time.Duration(readconfig.Config.Listen.IdleTimeout) * time.Second
+	}
+
 	err = server.ListenAndServe()
 	//err = http.ListenAndServe(listen, prx)
 	if err != nil {

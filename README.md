@@ -220,6 +220,9 @@ When using myproxy as Windows service make sure the file paths are absolute path
 listen:
   ip: 127.0.0.1
   port: 9080
+  readtimeout: 0
+  writetimeout: 0
+  idletimeout: 300
 wireshark:
   enable: true
   unmaskedwebsocket: true
