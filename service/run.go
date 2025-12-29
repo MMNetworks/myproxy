@@ -513,12 +513,15 @@ func runProxy(args []string) {
 	}
 	if readconfig.Config.Listen.ReadTimeout > 0 {
 		server.ReadTimeout = time.Duration(readconfig.Config.Listen.ReadTimeout) * time.Second
+		logging.Printf("INFO", "runProxy: Set proxy read timeout to %d seconds\n", readconfig.Config.Listen.ReadTimeout)
 	}
 	if readconfig.Config.Listen.WriteTimeout > 0 {
-		server.ReadTimeout = time.Duration(readconfig.Config.Listen.WriteTimeout) * time.Second
+		server.WriteTimeout = time.Duration(readconfig.Config.Listen.WriteTimeout) * time.Second
+		logging.Printf("INFO", "runProxy: Set proxy write timeout to %d seconds\n", readconfig.Config.Listen.WriteTimeout)
 	}
 	if readconfig.Config.Listen.IdleTimeout > 0 {
-		server.ReadTimeout = time.Duration(readconfig.Config.Listen.IdleTimeout) * time.Second
+		server.IdleTimeout = time.Duration(readconfig.Config.Listen.IdleTimeout) * time.Second
+		logging.Printf("INFO", "runProxy: Set proxy idle timeout to %d seconds\n", readconfig.Config.Listen.IdleTimeout)
 	}
 
 	err = server.ListenAndServe()
