@@ -47,8 +47,9 @@ type Connection struct {
 	Keepalive   int `yaml:"keepalive"`
 }
 type WebSocket struct {
-	Timeout int      `yaml:"timeout"`
-	IncExc  []string `yaml:"incexc"`
+	MaxPayloadLength int      `yaml:"maxplength"`
+	Timeout          int      `yaml:"timeout"`
+	IncExc           []string `yaml:"incexc"`
 }
 type FTP struct {
 	Username string `yaml:"username"`
@@ -482,6 +483,9 @@ func ReadConfig(configFilename string) (*Schema, error) {
 		if configOut.Connection.ReadTimeout != 0 {
 			configOut.WebSocket.Timeout = configOut.Connection.ReadTimeout
 		}
+	}
+	if configOut.WebSocket.MaxPayloadLength == 0 {
+		configOut.WebSocket.MaxPayloadLength = 16 * 65535
 	}
 	if configOut.Clamd.Connection == "" {
 		configOut.Clamd.Connection = "unix:/var/run/clamav/clamd.ctl"
