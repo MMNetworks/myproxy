@@ -243,6 +243,7 @@ logging:
   file: "log_9080"
   trace: false
   accesslog: "access.log"
+  milliseconds: true 
 connection:
   readtimeout: 0
   timeout: 5
