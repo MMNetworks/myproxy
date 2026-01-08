@@ -249,6 +249,7 @@ connection:
   timeout: 5
   keepalive: 5
 websocket:
+  maxplength: 1048560
   timeout: 10
   incexc:
     - "127.0.0.1/32;;.*;30"

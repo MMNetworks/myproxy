@@ -109,10 +109,6 @@ func (ctx *Context) GetTCPState() *protocol.TCPStruct {
 	return ctx.TCPState
 }
 
-func (ctx *Context) GetWSState() *protocol.WSStruct {
-	return ctx.WebsocketState
-}
-
 func (ctx *Context) onAccept(w http.ResponseWriter, r *http.Request) bool {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	defer func() {
@@ -1089,10 +1085,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			for {
 				var err error
 				var n int
-				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength)
-				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength)
+				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
 				if ctx.WebsocketState.Websocket {
-					n, err = protocol.WebsocketRead(ctx, true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
+					n, err = protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
 					if ctx.ReadTimeout > 0 {
 						hijConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
@@ -1248,10 +1244,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			for {
 				var err error
 				var n int
-				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength)
-				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength)
+				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
 				if ctx.WebsocketState.Websocket {
-					n, err = protocol.WebsocketRead(ctx, false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
+					n, err = protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
 					if ctx.ReadTimeout > 0 {
 						remoteConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
@@ -1432,9 +1428,9 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			//
 
 			for {
-				buf := make([]byte, 65535)
-				mbuf := make([]byte, 65535)
-				n, err := protocol.WebsocketRead(ctx, true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
+				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				n, err := protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				if err != nil {
 					if err == io.EOF {
 						break
@@ -1516,9 +1512,9 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			//
 
 			for {
-				buf := make([]byte, 65535)
-				mbuf := make([]byte, 65535)
-				n, err := protocol.WebsocketRead(ctx, false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
+				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				n, err := protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				if err != nil {
 					if err == io.EOF {
 						break
