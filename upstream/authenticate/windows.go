@@ -106,7 +106,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	proxy := ctx.UpstreamProxy
 
 	logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Use upstream proxy: %s\n", ctx.SessionNo, proxy)
-	if !HasPort.MatchString(proxy) {
+	if HasPort.MatchString(proxy) {
 		ipos := strings.LastIndex(proxy, ":")
 		if ipos > 0 {
 			proxyFQDN = proxy[0:ipos]
