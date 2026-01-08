@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"myproxy/logging"
 	"myproxy/readconfig"
@@ -96,14 +97,20 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 		copy(mbuf[offset:], localBuf[:4])
 		offset += 4
 	}
+
 	logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Websocket Header: FIN %t Opcode: %d, Masked: %t Payload Length:%d Offset: %d\n", rType, sessionNo, fin, opcode, masked, payloadLen, offset)
+
+	if payloadLen > maxPayloadLength {
+		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Websocket payload length > max length %d>%d\n", rType, sessionNo, payloadLen, maxPayloadLength)
+		return dataLen, errors.New("Payload too large")
+	}
 
 	dataLen = offset
 	for dataLen < offset+payloadLen {
 		conn.SetReadDeadline(time.Now().Add(time.Duration(timeOut) * time.Second))
 		start := time.Now()
 		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d start read\n", rType, sessionNo)
-		n, err := conn.Read(localBuf)
+		n, err := conn.Read(localBuf[:offset+payloadLen-dataLen])
 		elapsed := time.Since(start)
 		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read of %d bytes took %d milliseconds\n", rType, sessionNo, n, elapsed.Milliseconds())
 		if err != nil || dataLen+n > offset+payloadLen {
