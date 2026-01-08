@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+var hasPort = regexp.MustCompile(`:\d+$`)
+
 // Leverages Wireshark TCP connection reader
 // wireshark -k -i TCP@127.0.0.1:19000
 
@@ -168,10 +170,11 @@ func acceptWireshark(listener net.Listener) {
 				logging.Printf("ERROR", "AcceptWireshark: SessionID:%d Could not parse cidr: %s\n", 0, cidrStr)
 				continue
 			}
-			cpos := strings.Index(remoteAddr, ":")
-			if cpos != -1 {
-				remoteAddr = remoteAddr[:cpos]
+			rAddr, _, err := net.SplitHostPort(remoteAddr)
+			if err != nil {
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert forwarded ip %s: %v\n", 0, remoteAddr, err)
 			}
+			remoteAddr = rAddr
 			remoteIP := net.ParseIP(remoteAddr)
 			matchRemote = cidr.Contains(remoteIP)
 			if matchRemote {
@@ -257,30 +260,25 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	}
 	status.mu.Unlock()
 
-	srcIP := src
-	dstIP := dst
-	srcPort := -1
-	dstPort := -1
-	cpos := strings.LastIndex(src, ":")
-	v6pos := strings.Index(src, "]")
-	if cpos != -1 && cpos > v6pos {
-		srcIP = src[:cpos]
-		srcPort, err = strconv.Atoi(src[cpos+1:])
-		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert source port for %s to int: %v\n", sessionNo, src, err)
-			return err
-		}
-
+	srcIP, srcPortString, err := net.SplitHostPort(src)
+	if err != nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert source address for %s: %v\n", sessionNo, src, err)
+		return err
 	}
-	cpos = strings.LastIndex(dst, ":")
-	v6pos = strings.Index(dst, "]")
-	if cpos != -1 && cpos > v6pos {
-		dstIP = dst[:cpos]
-		dstPort, err = strconv.Atoi(dst[cpos+1:])
-		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination port for %s to int: %v\n", sessionNo, dst, err)
-			return err
-		}
+	dstIP, dstPortString, err := net.SplitHostPort(dst)
+	if err != nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination address for %s: %v\n", sessionNo, dst, err)
+		return err
+	}
+	srcPort, err := strconv.Atoi(srcPortString)
+	if err != nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert source port for %s to int: %v\n", sessionNo, src, err)
+		return err
+	}
+	dstPort, err := strconv.Atoi(dstPortString)
+	if err != nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination port for %s to int: %v\n", sessionNo, dst, err)
+		return err
 	}
 
 	if tcpState.tcpSequence == 0 {
@@ -305,15 +303,12 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	}
 
 	logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Add Identifier %d to packet\n", sessionNo, uint16(sessionNo&0xFFFF))
+
 	// Create IP layer
-	ip := layers.IPv4{
-		SrcIP:    net.ParseIP(srcIP), // Source IP
-		DstIP:    net.ParseIP(dstIP), // Destination IP
-		Protocol: layers.IPProtocolTCP,
-		Version:  4,
-		Id:       uint16(sessionNo & 0xFFFF),
-		IHL:      5,
-		TTL:      64,
+	ipAddr := net.ParseIP(srcIP)
+	if ipAddr == nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		return errors.New("Not an IP")
 	}
 
 	start := 0
@@ -376,19 +371,50 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 		// Serialize the layers
 		buf := gopacket.NewSerializeBuffer()
 
-		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
-
 		opts := gopacket.SerializeOptions{
 			FixLengths:       true,
 			ComputeChecksums: true,
 		}
-		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
-		if err != nil {
-			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not serialize packet: %v\n", sessionNo, err)
-			return err
-		}
 
+		if ipAddr.To4() != nil {
+			ip := layers.IPv4{
+				SrcIP:    net.ParseIP(srcIP), // Source IP
+				DstIP:    net.ParseIP(dstIP), // Destination IP
+				Protocol: layers.IPProtocolTCP,
+				Version:  4,
+				Id:       uint16(sessionNo & 0xFFFF),
+				IHL:      5,
+				TTL:      64,
+			}
+
+			// Set the TCP header length based on the options
+			tcp.SetNetworkLayerForChecksum(&ip)
+
+			err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+			if err != nil {
+				logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not serialize packet: %v\n", sessionNo, err)
+				return err
+			}
+
+		} else {
+			ip := layers.IPv6{
+				SrcIP:        net.ParseIP(srcIP),   // Source IPv6
+				DstIP:        net.ParseIP(dstIP),   // Destination IPv6
+				NextHeader:   layers.IPProtocolTCP, // Upper-layer protocol
+				Version:      6,
+				HopLimit:     64, // like TTL in IPv4
+				TrafficClass: 0,  // optional QoS
+				FlowLabel:    0,  // optional flow label
+			}
+			// Set the TCP header length based on the options
+			tcp.SetNetworkLayerForChecksum(&ip)
+
+			err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+			if err != nil {
+				logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not serialize packet: %v\n", sessionNo, err)
+				return err
+			}
+		}
 		// Write the packet to the PCAP connection
 		if pcapWriter != nil {
 			err = pcapWriter.WritePacket(gopacket.CaptureInfo{
@@ -410,6 +436,8 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 
 func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP string, srcPort int, dstPort int) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
+	var err error
+
 	// Use fake MAC
 	eth := layers.Ethernet{
 		SrcMAC:       []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // Source MAC
@@ -421,15 +449,13 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	tcpAck := tcpState.tcpServerRand
 
 	logging.Printf("DEBUG", "WriteSynAck: SessionID:%d Created SYN/SYN-ACK/ACK for IP packet Identifier %d\n", sessionNo, uint16(sessionNo&0xFFFF))
+
+	logging.Printf("DEBUG", "WriteSynAck: SessionID:%d SourceIP: %s DestinationIP: %s\n", sessionNo, srcIP, dstIP)
 	// Create IP layer
-	ip := layers.IPv4{
-		SrcIP:    net.ParseIP(srcIP), // Source IP
-		DstIP:    net.ParseIP(dstIP), // Destination IP
-		Protocol: layers.IPProtocolTCP,
-		Version:  4,
-		Id:       uint16(sessionNo & 0xFFFF),
-		IHL:      5,
-		TTL:      64,
+	ipAddr := net.ParseIP(srcIP)
+	if ipAddr == nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		return errors.New("Not an IP")
 	}
 
 	// Create TCP layer
@@ -457,17 +483,46 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	// Serialize the layers
 	buf := gopacket.NewSerializeBuffer()
 
-	// Set the TCP header length based on the options
-	tcp.SetNetworkLayerForChecksum(&ip)
-
 	opts := gopacket.SerializeOptions{
 		FixLengths:       true,
 		ComputeChecksums: true,
 	}
-	err := gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
-	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN packet: %v\n", sessionNo, err)
-		return err
+	if ipAddr.To4() != nil {
+		ip := layers.IPv4{
+			SrcIP:    net.ParseIP(srcIP), // Source IP
+			DstIP:    net.ParseIP(dstIP), // Destination IP
+			Protocol: layers.IPProtocolTCP,
+			Version:  4,
+			Id:       uint16(sessionNo & 0xFFFF),
+			IHL:      5,
+			TTL:      64,
+		}
+		// Set the TCP header length based on the options
+		tcp.SetNetworkLayerForChecksum(&ip)
+
+		err := gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+		if err != nil {
+			logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN packet: %v\n", sessionNo, err)
+			return err
+		}
+	} else {
+		ip := layers.IPv6{
+			SrcIP:        net.ParseIP(srcIP),   // Source IPv6
+			DstIP:        net.ParseIP(dstIP),   // Destination IPv6
+			NextHeader:   layers.IPProtocolTCP, // Upper-layer protocol
+			Version:      6,
+			HopLimit:     64, // like TTL in IPv4
+			TrafficClass: 0,  // optional QoS
+			FlowLabel:    0,  // optional flow label
+		}
+		// Set the TCP header length based on the options
+		tcp.SetNetworkLayerForChecksum(&ip)
+
+		err := gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+		if err != nil {
+			logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN packet: %v\n", sessionNo, err)
+			return err
+		}
 	}
 
 	// Write the packet to the PCAP connection
@@ -486,14 +541,10 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	}
 
 	// Create IP layer
-	ip = layers.IPv4{
-		SrcIP:    net.ParseIP(dstIP), // Source IP
-		DstIP:    net.ParseIP(srcIP), // Destination IP
-		Protocol: layers.IPProtocolTCP,
-		Version:  4,
-		Id:       uint16(sessionNo & 0xFFFF),
-		IHL:      5,
-		TTL:      64,
+	ipAddr = net.ParseIP(srcIP)
+	if ipAddr == nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		return errors.New("Not an IP")
 	}
 
 	tcpSeq = tcpState.tcpServerRand
@@ -523,17 +574,46 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	// Serialize the layers
 	buf = gopacket.NewSerializeBuffer()
 
-	// Set the TCP header length based on the options
-	tcp.SetNetworkLayerForChecksum(&ip)
-
 	opts = gopacket.SerializeOptions{
 		FixLengths:       true,
 		ComputeChecksums: true,
 	}
-	err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
-	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN-ACK packet: %v\n", sessionNo, err)
-		return err
+	if ipAddr.To4() != nil {
+		ip := layers.IPv4{
+			SrcIP:    net.ParseIP(dstIP), // Source IP
+			DstIP:    net.ParseIP(srcIP), // Destination IP
+			Protocol: layers.IPProtocolTCP,
+			Version:  4,
+			Id:       uint16(sessionNo & 0xFFFF),
+			IHL:      5,
+			TTL:      64,
+		}
+		// Set the TCP header length based on the options
+		tcp.SetNetworkLayerForChecksum(&ip)
+
+		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+		if err != nil {
+			logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN-ACK packet: %v\n", sessionNo, err)
+			return err
+		}
+	} else {
+		ip := layers.IPv6{
+			SrcIP:        net.ParseIP(srcIP),   // Source IPv6
+			DstIP:        net.ParseIP(dstIP),   // Destination IPv6
+			NextHeader:   layers.IPProtocolTCP, // Upper-layer protocol
+			Version:      6,
+			HopLimit:     64, // like TTL in IPv4
+			TrafficClass: 0,  // optional QoS
+			FlowLabel:    0,  // optional flow label
+		}
+		// Set the TCP header length based on the options
+		tcp.SetNetworkLayerForChecksum(&ip)
+
+		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+		if err != nil {
+			logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize SYN-ACK packet: %v\n", sessionNo, err)
+			return err
+		}
 	}
 
 	// Write the packet to the PCAP connection
@@ -552,14 +632,10 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	}
 
 	// Create IP layer
-	ip = layers.IPv4{
-		SrcIP:    net.ParseIP(srcIP), // Source IP
-		DstIP:    net.ParseIP(dstIP), // Destination IP
-		Protocol: layers.IPProtocolTCP,
-		Version:  4,
-		Id:       uint16(sessionNo & 0xFFFF),
-		IHL:      5,
-		TTL:      64,
+	ipAddr = net.ParseIP(srcIP)
+	if ipAddr == nil {
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		return errors.New("Not an IP")
 	}
 
 	tcpSeq = tcpState.tcpClientRand + 1
@@ -589,17 +665,46 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	// Serialize the layers
 	buf = gopacket.NewSerializeBuffer()
 
-	// Set the TCP header length based on the options
-	tcp.SetNetworkLayerForChecksum(&ip)
-
 	opts = gopacket.SerializeOptions{
 		FixLengths:       true,
 		ComputeChecksums: true,
 	}
-	err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
-	if err != nil {
-		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize ACK packet: %v\n", sessionNo, err)
-		return err
+	if ipAddr.To4() != nil {
+		ip := layers.IPv4{
+			SrcIP:    net.ParseIP(srcIP), // Source IP
+			DstIP:    net.ParseIP(dstIP), // Destination IP
+			Protocol: layers.IPProtocolTCP,
+			Version:  4,
+			Id:       uint16(sessionNo & 0xFFFF),
+			IHL:      5,
+			TTL:      64,
+		}
+		// Set the TCP header length based on the options
+		tcp.SetNetworkLayerForChecksum(&ip)
+
+		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+		if err != nil {
+			logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize ACK packet: %v\n", sessionNo, err)
+			return err
+		}
+	} else {
+		ip := layers.IPv6{
+			SrcIP:        net.ParseIP(srcIP),   // Source IPv6
+			DstIP:        net.ParseIP(dstIP),   // Destination IPv6
+			NextHeader:   layers.IPProtocolTCP, // Upper-layer protocol
+			Version:      6,
+			HopLimit:     64, // like TTL in IPv4
+			TrafficClass: 0,  // optional QoS
+			FlowLabel:    0,  // optional flow label
+		}
+		// Set the TCP header length based on the options
+		tcp.SetNetworkLayerForChecksum(&ip)
+
+		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
+		if err != nil {
+			logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not serialize ACK packet: %v\n", sessionNo, err)
+			return err
+		}
 	}
 
 	// Write the packet to the PCAP connection

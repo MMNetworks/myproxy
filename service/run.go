@@ -157,21 +157,22 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 		return 0
 	}
 	if forwardedIP != "" {
-		cpos := strings.Index(forwardedIP, ":")
-		if cpos != -1 {
-			forwardedIP = forwardedIP[:cpos]
+		fIP, _, err := net.SplitHostPort(forwardedIP)
+		if err != nil {
+			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert forwarded ip %s: %v\n", ctx.SessionNo, forwardedIP, err)
 		}
-		forwIP := net.ParseIP(forwardedIP)
+		forwIP := net.ParseIP(fIP)
 		matchForw = cidr.Contains(forwIP)
 	}
 
 	if connectionIP != "" {
-		cpos := strings.Index(connectionIP, ":")
-		if cpos != -1 {
-			connectionIP = connectionIP[:cpos]
+		cIP, _, err := net.SplitHostPort(connectionIP)
+		if err != nil {
+			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert connection ip %s: %v\n", ctx.SessionNo, connectionIP, err)
 		}
-		connIP := net.ParseIP(connectionIP)
+		connIP := net.ParseIP(cIP)
 		matchConn = cidr.Contains(connIP)
+		logging.Printf("DEBUG", "doTLSBreak: SessionID:%d cidr: %s connIP: %s\n", ctx.SessionNo, cidrStr, cIP)
 	}
 	logging.Printf("DEBUG", "doTLSBreak: SessionID:%d Flags: checkClient/checkProxy/matchConn/matchForw: %t/%t/%t/%t\n", ctx.SessionNo, checkClient, checkProxy, matchConn, matchForw)
 	if checkClient && matchConn || checkClient && matchForw {
@@ -338,20 +339,20 @@ func setReadTimeout(ctx *httpproxy.Context) {
 			continue
 		}
 		if forwardedIP != "" {
-			cpos := strings.Index(forwardedIP, ":")
-			if cpos != -1 {
-				forwardedIP = forwardedIP[:cpos]
+			fIP, _, err := net.SplitHostPort(forwardedIP)
+			if err != nil {
+				logging.Printf("ERROR", "setReadTimeout: SessionID:%d Could not convert forwarded ip %s: %v\n", ctx.SessionNo, forwardedIP, err)
 			}
-			forwIP := net.ParseIP(forwardedIP)
+			forwIP := net.ParseIP(fIP)
 			matchForw = cidr.Contains(forwIP)
 		}
 
 		if connectionIP != "" {
-			cpos := strings.Index(connectionIP, ":")
-			if cpos != -1 {
-				connectionIP = connectionIP[:cpos]
+			cIP, _, err := net.SplitHostPort(connectionIP)
+			if err != nil {
+				logging.Printf("ERROR", "setReadTimeout: SessionID:%d Could not convert forwarded ip %s: %v\n", ctx.SessionNo, connectionIP, err)
 			}
-			connIP := net.ParseIP(connectionIP)
+			connIP := net.ParseIP(cIP)
 			matchConn = cidr.Contains(connIP)
 		}
 		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Flags: checkClient/checkProxy/matchConn/matchForw: %t/%t/%t/%t\n", ctx.SessionNo, checkClient, checkProxy, matchConn, matchForw)

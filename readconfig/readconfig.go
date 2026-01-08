@@ -356,12 +356,14 @@ func ReadConfig(configFilename string) (*Schema, error) {
 	for i, v := range configOut.MITM.IncExc {
 		// IncExc string format (!|)src,(client|proxy);regex;certfile
 		isEmpty, _ := regexp.MatchString("^[ ]*$", v)
-		hasThreeEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
-		hasFourEntries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;[^;]*;.*", v)
+		hasThreeIPv4Entries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;.*", v)
+		hasFourIPv4Entries, _ := regexp.MatchString("^(!|)\\d+\\.\\d+\\.\\d+\\.\\d+(|/\\d+);(client|proxy)*;[^;]*;.*", v)
+		hasThreeIPv6Entries, _ := regexp.MatchString("^(!|)[:0-9a-fA-F]+(|/\\d+);(client|proxy)*;.*", v)
+		hasFourIPv6Entries, _ := regexp.MatchString("^(!|)[:0-9a-fA-F]+(|/\\d+);(client|proxy)*;[^;]*;.*", v)
 		if isEmpty {
 			continue
 		}
-		if !hasThreeEntries {
+		if !hasThreeIPv4Entries && !hasThreeIPv6Entries {
 			printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s\n", i+1, v)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
@@ -380,7 +382,7 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s err:%v\n", i+1, v, err)
 			return nil, errors.New("Invalid Include/Exclude line")
 		}
-		if hasFourEntries {
+		if hasFourIPv4Entries || hasFourIPv6Entries {
 			// Parse Include/Exclude line
 			rpos := strings.LastIndex(v, ";")
 			rootCAStr := v[rpos+1:]

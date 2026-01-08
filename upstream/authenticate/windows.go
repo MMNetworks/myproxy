@@ -13,9 +13,12 @@ import (
 	"myproxy/logging"
 	"myproxy/readconfig"
 	"net/http"
+	"regexp"
 	"strings"
 	// "github.com/yassinebenaid/godump"
 )
+
+var HasPort = regexp.MustCompile(`:\d+$`)
 
 func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
@@ -103,9 +106,11 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	proxy := ctx.UpstreamProxy
 
 	logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Use upstream proxy: %s\n", ctx.SessionNo, proxy)
-	ipos := strings.Index(proxy, ":")
-	if ipos > 0 {
-		proxyFQDN = proxy[0:ipos]
+	if !HasPort.MatchString(proxy) {
+		ipos := strings.LastIndex(proxy, ":")
+		if ipos > 0 {
+			proxyFQDN = proxy[0:ipos]
+		}
 	} else {
 		proxyFQDN = proxy
 	}

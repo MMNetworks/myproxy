@@ -301,10 +301,12 @@ func SetProxy(ctx *httpproxy.Context) error {
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Count of working proxies: %d\n", ctx.SessionNo, proxyOKCount)
 				randProxy := rand.IntN(proxyOKCount)
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Chose proxy %d\n", ctx.SessionNo, randProxy)
-				ipos := strings.Index(proxyOKList[randProxy], ":")
-				if ipos > 0 {
-					proxyFQDN = proxyOKList[randProxy][0:ipos]
-					proxyPort = proxyOKList[randProxy][ipos+1:]
+				if httpproxy.HasPort.MatchString(proxyOKList[randProxy]) {
+					ipos := strings.LastIndex(proxyOKList[randProxy], ":")
+					if ipos > 0 {
+						proxyFQDN = proxyOKList[randProxy][0:ipos]
+						proxyPort = proxyOKList[randProxy][ipos+1:]
+					}
 				} else {
 					proxyFQDN = proxyOKList[randProxy]
 				}
@@ -319,10 +321,12 @@ func SetProxy(ctx *httpproxy.Context) error {
 			} else if strings.ToUpper(ProxyList[0].Type) != "PROXY" {
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Unuspported Proxy type: %s\n", ctx.SessionNo, ProxyList[0].Type)
 			} else {
-				ipos := strings.Index(ProxyList[0].Address, ":")
-				if ipos > 0 {
-					proxyFQDN = ProxyList[0].Address[0:ipos]
-					proxyPort = ProxyList[0].Address[ipos+1:]
+				if httpproxy.HasPort.MatchString(ProxyList[0].Address) {
+					ipos := strings.LastIndex(ProxyList[0].Address, ":")
+					if ipos > 0 {
+						proxyFQDN = ProxyList[0].Address[0:ipos]
+						proxyPort = ProxyList[0].Address[ipos+1:]
+					}
 				} else {
 					proxyFQDN = ProxyList[0].Address
 				}

@@ -31,9 +31,11 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 	proxy := ctx.UpstreamProxy
 
 	logging.Printf("DEBUG", "PrxDial: SessionID:%d Connect to %s:%s via proxy %s\n", ctx.SessionNo, network, address, proxy)
-	ipos := strings.Index(address, ":")
-	if ipos > 0 {
-		host = address[0:ipos]
+	if httpproxy.HasPort.MatchString(address) {
+		ipos := strings.LastIndex(address, ":")
+		if ipos > 0 {
+			host = address[0:ipos]
+		}
 	} else {
 		host = address
 	}
