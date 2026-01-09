@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-var hasPort = regexp.MustCompile(`:\d+$`)
-
 // Leverages Wireshark TCP connection reader
 // wireshark -k -i TCP@127.0.0.1:19000
 
@@ -163,7 +161,16 @@ func acceptWireshark(listener net.Listener) {
 				cidrStr = cidrStr[1:]
 			}
 			if !hasSlash {
-				cidrStr = cidrStr + "/32"
+				ipAddr := net.ParseIP(cidrStr)
+				if ipAddr == nil {
+					logging.Printf("ERROR", "AcceptWireshark: SessionID:%d source address %s is not an IP\n", 0, cidrStr)
+					continue
+				}
+				if ipAddr.To4() != nil {
+					cidrStr = cidrStr + "/32"
+				} else {
+					cidrStr = cidrStr + "/128"
+				}
 			}
 			_, cidr, err := net.ParseCIDR(cidrStr)
 			if err != nil {
@@ -172,7 +179,12 @@ func acceptWireshark(listener net.Listener) {
 			}
 			rAddr, _, err := net.SplitHostPort(remoteAddr)
 			if err != nil {
-				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert forwarded ip %s: %v\n", 0, remoteAddr, err)
+				//	                        if errors.Is(err, net.ErrMissingPort) {
+				if strings.Contains(err.Error(), "missing port in address") {
+					rAddr = remoteAddr
+				} else {
+					logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert forwarded ip %s: %v\n", 0, remoteAddr, err)
+				}
 			}
 			remoteAddr = rAddr
 			remoteIP := net.ParseIP(remoteAddr)

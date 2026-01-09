@@ -375,7 +375,17 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			cidr = cidr[1:]
 		}
 		if cpos == -1 {
-			cidr = cidr + "/32"
+			ipAddr := net.ParseIP(cidr)
+			if ipAddr == nil {
+				printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s \n", i+1, v)
+				return nil, errors.New("Invalid Include/Exclude line")
+
+			}
+			if ipAddr.To4() != nil {
+				cidr = cidr + "/32"
+			} else {
+				cidr = cidr + "/128"
+			}
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -419,7 +429,17 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			cidr = cidr[1:]
 		}
 		if cpos == -1 {
-			cidr = cidr + "/32"
+			ipAddr := net.ParseIP(cidr)
+			if ipAddr == nil {
+				printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s \n", i+1, v)
+				return nil, errors.New("Invalid Include/Exclude line")
+
+			}
+			if ipAddr.To4() != nil {
+				cidr = cidr + "/32"
+			} else {
+				cidr = cidr + "/128"
+			}
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -449,7 +469,17 @@ func ReadConfig(configFilename string) (*Schema, error) {
 			cidr = cidr[1:]
 		}
 		if cpos == -1 {
-			cidr = cidr + "/32"
+			ipAddr := net.ParseIP(cidr)
+			if ipAddr == nil {
+				printf("ERROR", "ReadConfig: wrong syntax of MITM Include/Exclude field: %d:%s \n", i+1, cidr)
+				return nil, errors.New("Invalid Include/Exclude line")
+
+			}
+			if ipAddr.To4() != nil {
+				cidr = cidr + "/32"
+			} else {
+				cidr = cidr + "/128"
+			}
 		}
 		_, _, err := net.ParseCIDR(cidr)
 		if err != nil {

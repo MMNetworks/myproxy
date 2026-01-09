@@ -15,12 +15,10 @@ import (
 	"myproxy/http-proxy"
 	"myproxy/logging"
 	"myproxy/readconfig"
+	"net"
 	"net/http"
-	"regexp"
 	"strings"
 )
-
-var HasPort = regexp.MustCompile(`:\d+$`)
 
 func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
@@ -104,14 +102,17 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	proxy := ctx.UpstreamProxy
 
 	logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Use upstream proxy: %s\n", ctx.SessionNo, proxy)
-	if HasPort.MatchString(proxy) {
-		ipos := strings.LastIndex(proxy, ":")
-		if ipos > 0 {
-			proxyFQDN = proxy[0:ipos]
+	proxyFQDN, _, err = net.SplitHostPort(proxy)
+	if err != nil {
+		// if errors.Is(err, net.ErrMissingPort) {
+		if strings.Contains(err.Error(), "missing port in address") {
+			proxyFQDN = proxy
+		} else {
+			logging.Printf("ERROR", "DoNegotiateProxyAuth: SessionID:%d Could not convert proxy ip %s: %v\n", ctx.SessionNo, proxy, err)
+			return err
 		}
-	} else {
-		proxyFQDN = proxy
 	}
+
 	// Kerberos
 	krbConfigFile := readconfig.Config.Proxy.KerberosConfig
 	krbCredentialCache := readconfig.Config.Proxy.KerberosCache

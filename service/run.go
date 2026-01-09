@@ -146,7 +146,16 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 		cidrStr = cidrStr[1:]
 	}
 	if !hasSlash {
-		cidrStr = cidrStr + "/32"
+		ipAddr := net.ParseIP(cidrStr)
+		if ipAddr == nil {
+			logging.Printf("ERROR", "doTLSBreak: SessionID:%d source address %s is not an IP\n", ctx.SessionNo, cidrStr)
+			return 0
+		}
+		if ipAddr.To4() != nil {
+			cidrStr = cidrStr + "/32"
+		} else {
+			cidrStr = cidrStr + "/128"
+		}
 	}
 	checkProxy = !(strings.ToUpper(clientOrProxyStr) == "CLIENT")
 	checkClient = !(strings.ToUpper(clientOrProxyStr) == "PROXY")
@@ -159,7 +168,12 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	if forwardedIP != "" {
 		fIP, _, err := net.SplitHostPort(forwardedIP)
 		if err != nil {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert forwarded ip %s: %v\n", ctx.SessionNo, forwardedIP, err)
+			//			if errors.Is(err, net.ErrMissingPort) {
+			if strings.Contains(err.Error(), "missing port in address") {
+				fIP = forwardedIP
+			} else {
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert forwarded ip %s: %v\n", ctx.SessionNo, forwardedIP, err)
+			}
 		}
 		forwIP := net.ParseIP(fIP)
 		matchForw = cidr.Contains(forwIP)
@@ -168,7 +182,12 @@ func doTLSBreak(ctx *httpproxy.Context, incExc string) int {
 	if connectionIP != "" {
 		cIP, _, err := net.SplitHostPort(connectionIP)
 		if err != nil {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert connection ip %s: %v\n", ctx.SessionNo, connectionIP, err)
+			//			if errors.Is(err, net.ErrMissingPort) {
+			if strings.Contains(err.Error(), "missing port in address") {
+				cIP = connectionIP
+			} else {
+				logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not convert connection ip %s: %v\n", ctx.SessionNo, connectionIP, err)
+			}
 		}
 		connIP := net.ParseIP(cIP)
 		matchConn = cidr.Contains(connIP)
@@ -328,7 +347,16 @@ func setReadTimeout(ctx *httpproxy.Context) {
 			cidrStr = cidrStr[1:]
 		}
 		if !hasSlash {
-			cidrStr = cidrStr + "/32"
+			ipAddr := net.ParseIP(cidrStr)
+			if ipAddr == nil {
+				logging.Printf("ERROR", "setReadTimeout: SessionID:%d source address %s is not an IP\n", ctx.SessionNo, cidrStr)
+				continue
+			}
+			if ipAddr.To4() != nil {
+				cidrStr = cidrStr + "/32"
+			} else {
+				cidrStr = cidrStr + "/128"
+			}
 		}
 		checkProxy = !(strings.ToUpper(clientOrProxyStr) == "CLIENT")
 		checkClient = !(strings.ToUpper(clientOrProxyStr) == "PROXY")
@@ -451,6 +479,8 @@ func runProxy(args []string) {
 	}
 	if err != nil {
 		logging.Printf("ERROR", "runProxy: Error instantiating proxy: %v\n", err)
+		// Give logging process time
+		time.Sleep(2 * time.Second)
 		return
 	}
 
@@ -483,6 +513,8 @@ func runProxy(args []string) {
 		prx.ClamdStruct, err = viruscheck.SetupClamd(readconfig.Config.Clamd.Connection)
 		if err != nil {
 			logging.Printf("ERROR", "runProxy: SetupClamd error: %v\n", err)
+			// Give logging process time
+			time.Sleep(2 * time.Second)
 			return
 		}
 	} else {
@@ -497,6 +529,8 @@ func runProxy(args []string) {
 		err = protocol.ListenWireshark(listen)
 		if err != nil {
 			logging.Printf("ERROR", "runProxy: WiresharkListen error: %v\n", err)
+			// Give logging process time
+			time.Sleep(2 * time.Second)
 			return
 		}
 	} else {
@@ -529,6 +563,8 @@ func runProxy(args []string) {
 	//err = http.ListenAndServe(listen, prx)
 	if err != nil {
 		logging.Printf("ERROR", "runProxy: ListenAndServer error: %v\n", err)
+		// Give logging process time
+		time.Sleep(2 * time.Second)
 	}
 
 	return
