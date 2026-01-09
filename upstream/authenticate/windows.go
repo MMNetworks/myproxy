@@ -98,6 +98,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 
 func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
+	var err error
 	var proxyFQDN string
 	var servicePrincipalName string
 
