@@ -1810,7 +1810,6 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		ctx.WebsocketState.Websocket = true
 		ctx.Prx.MitmChunked = false
 		bodySize = 0
-		ctx.AccessLog.DestinationIP = ctx.WebsocketState.WebsocketConn.RemoteAddr().String()
 	} else {
 		logging.Printf("DEBUG", "doResponse: SessionID:%d Call RoundTrip\n", ctx.SessionNo)
 		resp, err = ctx.Rt.RoundTrip(r)
