@@ -896,7 +896,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	ctx.ConnectAction = ConnectProxy
 	host := r.URL.Host
 	if !HasPort.MatchString(host) {
-		host += ":80"
+		host += ":443"
 	}
 	if ctx.Prx.OnConnect != nil {
 		var newHost string
@@ -906,7 +906,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 	}
 	if !HasPort.MatchString(host) {
-		host += ":80"
+		host += ":443"
 	}
 	ctx.ConnectHost = host
 	logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
