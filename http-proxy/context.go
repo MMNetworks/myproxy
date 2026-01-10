@@ -980,6 +980,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 		src := ctx.AccessLog.ProxyIP
 		dst := ctx.AccessLog.SourceIP
+		ctx.AccessLog.DestinationIP = remoteConn.RemoteAddr().String()
 		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 200 OK\r\n\r\n"))
 		if err != nil {
 			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
@@ -1809,6 +1810,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		ctx.WebsocketState.Websocket = true
 		ctx.Prx.MitmChunked = false
 		bodySize = 0
+		ctx.AccessLog.DestinationIP = ctx.WebsocketState.WebsocketConn.RemoteAddr().String()
 	} else {
 		logging.Printf("DEBUG", "doResponse: SessionID:%d Call RoundTrip\n", ctx.SessionNo)
 		resp, err = ctx.Rt.RoundTrip(r)

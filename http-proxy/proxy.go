@@ -132,6 +132,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 		return nil, err
 	}
 
+	ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 	return conn, err
 }
 
