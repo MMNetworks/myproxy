@@ -148,7 +148,10 @@ func acceptWireshark(listener net.Listener) {
 			continue
 
 		}
-		for _, cidrStr := range readconfig.Config.Wireshark.IncExc {
+		readconfig.Config.Wireshark.Mu.Lock()
+		defer readconfig.Config.Wireshark.Mu.Unlock()
+		for _, rule := range readconfig.Config.Wireshark.Rules {
+			cidrStr := rule.IP
 			// IncExc string format (!)subnet
 			logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Check against IncExc Subnet %s\n", 0, cidrStr)
 			isEmpty, _ := regexp.MatchString("^[ ]*$", cidrStr)
@@ -197,6 +200,7 @@ func acceptWireshark(listener net.Listener) {
 			}
 
 		}
+		readconfig.Config.Wireshark.Mu.Unlock()
 		if !matchRemote {
 			logging.Printf("INFO", "AcceptWireshark: SessionID:%d Did not accept connection from %s\n", 0, remoteAddr)
 			conn.Close()

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
-	"myproxy/readconfig"
 	"regexp"
 	"strings"
 )
@@ -20,13 +19,12 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 	var loggerName string = "myproxy"
 	var wlog *eventlog.Log
 
-	logLevel := strings.ToUpper(readconfig.Config.Logging.Level)
-	logFilename := strings.ToUpper(readconfig.Config.Logging.File)
-
+	current.Mu.Lock()
+	defer current.Mu.Unlock()
 	inService, err := svc.IsWindowsService()
-	if err == nil && inService && strings.ToUpper(logFilename) == "STDOUT" {
+	if err == nil && inService && strings.ToUpper(current.logFilename) == "STDOUT" {
 		// Cannot log to stdout from service
-		logFilename = stdoutLog
+		current.logFilename = stdoutLog
 	}
 
 	message := fmt.Sprintf(format, a...)
@@ -44,11 +42,9 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 				osPrintf(newlogFilename, "ERROR", message)
 				message = fmt.Sprintf("Printf: switch to %s\n", newlogFilename)
 				osPrintf(newlogFilename, "INFO", message)
-				if readconfig.Config != nil {
-					readconfig.Config.Logging.File = newlogFilename
-				}
+				current.logFilename = newlogFilename
 				message = fmt.Sprintf(format, a...)
-				osPrintf(logFilename, level, message)
+				osPrintf(current.logFilename, level, message)
 				return 0, err
 			}
 		}
@@ -63,8 +59,8 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 	if level == "INFO" {
 		switch {
 		case
-			logLevel == "DEBUG",
-			logLevel == "INFO":
+			current.logLevel == "DEBUG",
+			current.logLevel == "INFO":
 			err = wlog.Info(100, "INFO: "+message)
 			length = len("INFO: " + message)
 		default:
@@ -72,7 +68,7 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 	} else if level == "DEBUG" {
 		switch {
 		case
-			logLevel == "DEBUG":
+			current.logLevel == "DEBUG":
 			err = wlog.Info(700, "DEBUG: "+message)
 			length = len("DEBUG: " + message)
 		default:
@@ -80,9 +76,9 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 	} else if level == "WARNING" {
 		switch {
 		case
-			logLevel == "DEBUG",
-			logLevel == "INFO",
-			logLevel == "WARNING":
+			current.logLevel == "DEBUG",
+			current.logLevel == "INFO",
+			current.logLevel == "WARNING":
 			err = wlog.Warning(200, "WARNING: "+message)
 			length = len("WARNING: " + message)
 		default:

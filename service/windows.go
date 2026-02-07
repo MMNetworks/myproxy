@@ -236,12 +236,12 @@ func startService(name string, configFile string) error {
 		return fmt.Errorf("Could not access service: %v", err)
 	}
 	defer s.Close()
-	logging.Printf("INFO", "startService: starting %s service with configuration file: %s\n", name, configFile)
+	logging.Printf("INFO", "startService: Starting service %s with configuration file: %s\n", name, configFile)
 	err = s.Start("-c", configFile)
 	if err != nil {
 		return fmt.Errorf("Could not start service: %v", err)
 	}
-	logging.Printf("INFO", "startService: started %s service\n", name)
+	logging.Printf("INFO", "startService: Started service %s\n", name)
 	return nil
 }
 
@@ -279,14 +279,14 @@ func runService(name string) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	var err error
 
-	logging.Printf("INFO", "runService: starting %s service\n", name)
+	logging.Printf("INFO", "runService: Starting service %s\n", name)
 	run := svc.Run
 	err = run(name, &myproxyService{})
 	if err != nil {
-		logging.Printf("ERROR", "runService: %s service failed: %v\n", name, err)
+		logging.Printf("ERROR", "runService: Service %s failed: %v\n", name, err)
 		return
 	}
-	logging.Printf("INFO", "runService: %s service stopped\n", name)
+	logging.Printf("INFO", "runService: Service %s stopped\n", name)
 }
 
 type myproxyService struct{}
@@ -297,15 +297,15 @@ func (m *myproxyService) Execute(args []string, r <-chan svc.ChangeRequest, chan
 	changes <- svc.Status{State: svc.StartPending}
 
 	if len(args) > 0 {
-		logging.Printf("DEBUG", "Execute: service args: %s\n", strings.Join(args[:], ","))
+		logging.Printf("DEBUG", "Execute: Service args: %s\n", strings.Join(args[:], ","))
 		go runProxy(args[:])
-		logging.Printf("DEBUG", "Execute: run proxy\n")
+		logging.Printf("DEBUG", "Execute: Run proxy\n")
 	} else {
-		logging.Printf("DEBUG", "Execute: no service args\n")
+		logging.Printf("DEBUG", "Execute: No service args\n")
 		var largs []string
 		largs = []string{"myproxy"}
 		runProxy(largs)
-		logging.Printf("DEBUG", "Execute: run proxy\n")
+		logging.Printf("DEBUG", "Execute: Run proxy\n")
 	}
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 loop:
@@ -322,7 +322,7 @@ loop:
 			case svc.Continue:
 				changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 			default:
-				logging.Printf("ERROR", "Execute: unexpected control request #%d", c)
+				logging.Printf("ERROR", "Execute: Unexpected control request #%d", c)
 			}
 		}
 	}

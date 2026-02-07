@@ -5,16 +5,15 @@ package logging
 import (
 	"fmt"
 	"log/syslog"
-	"myproxy/readconfig"
-	"strings"
 )
 
 func _systemLog(timeStamp string, level string, format string, a ...any) (int, error) {
 	var length int = 0
 	var err error = nil
 
-	logLevel := strings.ToUpper(readconfig.Config.Logging.Level)
-
+	current.Mu.Lock()
+	defer current.Mu.Unlock()
+	logLevel := current.logLevel
 	message := fmt.Sprintf(format, a...)
 	var sysLog *syslog.Writer
 	// Log to local Unix syslog socket

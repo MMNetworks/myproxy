@@ -161,52 +161,42 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>connection:</li>
 <ul>
 <li>setting for connection timeouts. readtimeout(deafult = 0) can enable longstanding session e.g. websockets. For granular control see websocket settings</li>
+<li>When dns servers are specified the proxies own dial function is used instead of golangs default. The dns servers will be queried in parallel for fastest response ( no retry). The dialer tries connections over IPv6 first and then IPv4. If fallbackdelay is <= 0 the fastest response is selected from available IPv6 and IPv4 ips otherwise IPv4 will be delayed by fallbackdelay in milliseconds. The dialer can be limited to IPv6 or IPv4 only. You can select openDNS dns servers to apply category filtering.
 </ul>
 <li>mitm:</li>
 <ul>
 <li>settings for TLS break of proxy connection.(default disabled) </li>
 <li>needs either a string with key and certificate or file names pointing to a key and certficate</li>
-<li>The include/exclude list can be used to bypass TLS break </li>
+<li>The rules list can be used to bypass TLS break </li>
 <ul>
-<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;;&lt;selfsignedrootCA|insecure;&gt;
-<ul>
-<li>        source IP or subnet to include for TLS break or exclude if prefixed with !</li>
-<li>        the second value determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
-<li>        the third value is a regex to match the URL against.</li>
-<li>        the last value is a location of a selfsigned rootCA file. When MITM is enabled the proxy needs to verify the server cert instead of the client. This helps to limit selfsigned certificate checks. it can also be set to ignore certificate check with the keyword insecure</li>
-<li>The include/exclude file will be appended to the incexc list</li> 
+<li>        the IP is the source IP or subnet to include for TLS break or exclude if prefixed with !</li>
+<li>        the client determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
+<li>        the regex is a regex to match the URL against.</li>
+<li>        the certfile is a location of a selfsigned rootCA file. When MITM is enabled the proxy needs to verify the server cert instead of the client. This helps to limit selfsigned certificate checks. it can also be set to ignore certificate check with the keyword insecure</li>
 </ul>
-</ul>
+The rules file content will be appended to the rules list
 </ul>
 <li>wireshark:</li>
 <ul>
 <li>settings for wireshark listen ip and port. You can connect using wireshark -k -i TCP@&lt;ip&gt;:&lt;port&gt; </li>
-<li>The include/exclude list can be used to limit access to wireshark listening port</li>
+<li>The rules list and the rules files can be used to limit access to wireshark listening port</li>
 <li>There is also an option to send the unmasked websocket traffic to wireshark instead of the masked traffic</li>
-<ul>
-</ul>
 </ul>
 <li>clamd:</li>
 <ul>
 <li>settings for clamd connection. This can be a unix socket or over TCP and HTTPS. You have to provide a client cert and key for MTLS to the provided HTTPS server which converts HTTPS requests into clamd. This was added to make sure remote clamd connections are protected and authenticated.</li>
 <li>clamd has also a setting to block virus infected traffic or only report and a setting to block when clamd is unavailable</li> 
-<ul>
-</ul>
 </ul>
 <li>websocket:</li>
 <ul>
-<li>settings to control websocket usage. The include/exclude list can be used to enable websocket per client and URL with a timeout. A timeout of 0 basically disables websockets. A default timeout can be set using the timeout setting. Websocket conenction will also be inspected when MITM is set.</li>
+<li>settings to control websocket usage. The include/exclude list can be used to enable websocket per client and URL with a timeout. A timeout of 0 basically disables websockets. A default timeout can be set using the timeout setting. Websocket connections will also be inspected when MITM is set. Thw maximim websocket packet length can be set</li>
 <ul>
-<li>Syntax: &lt;src&gt;;&lt;source&gt;;&lt;regex&gt;;&lt;timeout;&gt;
-<ul>
-<li>        source IP or subnet to include for websocket use or exclude if prefixed with !</li>
-<li>        the second value determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
-<li>        the third value is a regex to match the URL against.</li>
-<li>        the last value is a timeout value in seconds</li>
+<li>        the IP is source IP or subnet to include for websocket use or exclude if prefixed with !</li>
+<li>        the client determines if the source IP is the connection IP or forwarded IP if set (client) or the source IP is only the connection IP when the forwarded IP is set(proxy) (i.e. connection IP is likely a downstream proxy). As default both IPs are checked against </li>
+<li>        the regex is a regex to match the URL against.</li>
+<li>        the timout is a timeout value in seconds</li>
 </ul>
-<ul>
-</ul>
-</ul>
+The rules file content will be appended to the rules list
 </ul>
 <li>ftp:</li>
 <ul>
@@ -220,6 +210,11 @@ When using myproxy as Windows service make sure the file paths are absolute path
 listen:
   ip: 127.0.0.1
   port: 9080
+  tls: false
+  certfile: "rootCA.crt"
+  keyfile: "rootCA.key"
+#  rootcafile: "CA.pem"
+  rootcafile: "insecure"
   readtimeout: 0
   writetimeout: 0
   idletimeout: 300
@@ -228,7 +223,8 @@ wireshark:
   unmaskedwebsocket: true
   ip: 127.0.0.1
   port: 19000
-  incexc:
+  rulesfile: "wiresharkips.txt"
+  rules:
      - "127.0.0.1/32"
 clamd:
   enable: true
@@ -245,16 +241,27 @@ logging:
   accesslog: "access.log"
   milliseconds: true 
 connection:
+  dnsservers: 
+    - "1.1.1.1"
+    - "8.8.8.8"
+  dnstimeout: 2
+  fallbackdelay: 300
+  ipv6: true
+  ipv4: true
   readtimeout: 0
   timeout: 5
   keepalive: 5
 websocket:
   maxplength: 1048560
   timeout: 10
-  incexc:
-    - "127.0.0.1/32;;.*;30"
-    - "!10.0.0.0/8;;.*"
-    - "192.168.0.0/16;;.*:60"
+  rulesfile: "websocketrules.yaml"
+  rules:
+   - ip:  "127.0.0.1/32"
+     regex: ".*"
+     timeout: 30
+   - ip:  "192.168.0.0/16"
+     regex: ".*"
+     timeout: 60
 ftp:
   username: "ftp"
   password: "anonymous@ftp.com"
@@ -264,10 +271,21 @@ mitm:
   cert: ""
   keyfile: "key.pem"
   certfile: "cert.pem"
-  incexcfile: "incexcfile.txt"
-  incexc: 
-    - "!100.10.10.0/24;client;.*;selfsignedCA"
-    - "0.0.0.0/0;client;.*"
+  rulesfile: "mitmrules.yaml"
+  rules: 
+    - ip: "::1"
+      client: "client"
+      regex: ".*"
+      certfile: "insecure"
+    - ip: "!100.10.10.0/24"
+      regex: ".*"
+      certfile: "selfsignedCA"
+    - ip: "192.168.1.0/24"
+      regex: ".*"
+      certfile: "insecure"
+    - ip: "0.0.0.0/0
+      client: "client"
+      regex: ".*"
 pac:
   type: "FILE"
   url: "http://pac.com/pac_file"

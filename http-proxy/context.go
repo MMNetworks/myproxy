@@ -175,6 +175,7 @@ func (ctx *Context) doAccept(w http.ResponseWriter, r *http.Request) bool {
 		if r.Body != nil {
 			defer r.Body.Close()
 		}
+		logging.Printf("DEBUG", "doAccept: SessionID:%d Version: %s\n", ctx.SessionNo, r.Proto)
 		ctx.doError("Accept", ErrNotSupportHTTPVer, nil)
 		return true
 	}
@@ -639,7 +640,6 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		}
 		dataConn.Close()
 		remoteAddr := dataConn.RemoteAddr().(*net.TCPAddr)
-		// Replace high port of data connection with control connection port
 		ctx.AccessLog.DestinationIP = remoteAddr.IP.String() + ":" + port
 
 		if strings.ToUpper(method) == "PUT" {
@@ -981,6 +981,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		src := ctx.AccessLog.ProxyIP
 		dst := ctx.AccessLog.SourceIP
 		ctx.AccessLog.DestinationIP = remoteConn.RemoteAddr().String()
+
 		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 200 OK\r\n\r\n"))
 		if err != nil {
 			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
@@ -1869,6 +1870,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	}
 	dst := ctx.AccessLog.ProxyIP
 	src := ctx.AccessLog.SourceIP
+
 	err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, responseDump)
 	if err != nil {
 		logging.Printf("ERROR", "doResponse: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)

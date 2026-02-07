@@ -3,11 +3,11 @@ package logging
 import (
 	"bufio"
 	"fmt"
-	"myproxy/readconfig"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -545,6 +545,14 @@ var TLSExtensionType = map[uint16]string{
 	64250: "RFC8701",
 }
 
+type ReadConfig interface {
+	LogLevel() string
+	LogTrace() bool
+	LogFile() string
+	AccessFile() string
+	MilliSeconds() bool
+}
+
 type logStruct struct {
 	time     string
 	filename string
@@ -552,9 +560,21 @@ type logStruct struct {
 	message  string
 }
 
+// Logging Configuration
+type configStruct struct {
+	Mu          sync.Mutex
+	logLevel    string
+	logTrace    bool
+	logFilename string
+	accessLog   string
+	msec        bool
+}
+
+var current configStruct
+
 var logChan = make(chan logStruct, 65000) // Buffered channel
 
-func LogProcessor() {
+func LogProcessor(readConfig ReadConfig) {
 	var logBuffer *bufio.Writer
 	var accessBuffer *bufio.Writer
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -567,19 +587,24 @@ func LogProcessor() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGHUP)
 
+	// Use interface to avoid import loop
+	current.Mu.Lock()
+	current.msec = readConfig.MilliSeconds()
+	current.logLevel = strings.ToUpper(readConfig.LogLevel())
+	current.logTrace = readConfig.LogTrace()
+	current.logFilename = readConfig.LogFile()
+	current.accessLog = readConfig.AccessFile()
+	current.Mu.Unlock()
+
 	for {
-
-		logFilename := readconfig.Config.Logging.File
-		accessLog := readconfig.Config.Logging.AccessLog
-
-		if strings.ToUpper(logFilename) != "STDOUT" && logFilename != "" {
-			if strings.ToUpper(logFilename) != "SYSLOG" && strings.ToUpper(logFilename) != "EVENTLOG" {
+		if strings.ToUpper(current.logFilename) != "STDOUT" && current.logFilename != "" {
+			if strings.ToUpper(current.logFilename) != "SYSLOG" && strings.ToUpper(current.logFilename) != "EVENTLOG" {
 				// Log buffered to local Unix file
 				var err error
-				logFile, err = os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+				logFile, err = os.OpenFile(current.logFilename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 				if err != nil {
 					timeStamp := time.Now().Format(time.RFC1123)
-					fmt.Printf("%s ERROR: LogProcessor: Could not open logfile %s\n", timeStamp, logFilename)
+					fmt.Printf("%s ERROR: LogProcessor: Could not open logfile %s\n", timeStamp, current.logFilename)
 					return
 				}
 				defer logFile.Close()
@@ -587,17 +612,19 @@ func LogProcessor() {
 			} // else write to system log
 		} else {
 			// Log buffered to stdout
-			logFilename = "STDOUT"
+			current.Mu.Lock()
+			current.logFilename = "STDOUT"
+			current.Mu.Unlock()
 			logBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
 		}
-		if strings.ToUpper(accessLog) != "STDOUT" && accessLog != "" {
-			if strings.ToUpper(accessLog) != "SYSLOG" && strings.ToUpper(accessLog) != "EVENTLOG" {
+		if strings.ToUpper(current.accessLog) != "STDOUT" && current.accessLog != "" {
+			if strings.ToUpper(current.accessLog) != "SYSLOG" && strings.ToUpper(current.accessLog) != "EVENTLOG" {
 				// Log buffered to local Unix file
 				var err error
-				accessLogFile, err = os.OpenFile(accessLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
+				accessLogFile, err = os.OpenFile(current.accessLog, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 				if err != nil {
 					timeStamp := time.Now().Format(time.RFC1123)
-					fmt.Printf("%s ERROR: LogProcessor: Could not open accesslog file %s\n", timeStamp, accessLog)
+					fmt.Printf("%s ERROR: LogProcessor: Could not open accesslog file %s\n", timeStamp, current.accessLog)
 					return
 				}
 				defer accessLogFile.Close()
@@ -605,7 +632,7 @@ func LogProcessor() {
 			} // else write to sysetm log
 		} else {
 			// Log buffered to stdout
-			accessLog = "STDOUT"
+			current.accessLog = "STDOUT"
 			accessBuffer = bufio.NewWriterSize(os.Stdout, 64*1024) // 64KB buffer
 		}
 
@@ -629,12 +656,12 @@ func LogProcessor() {
 					fmt.Printf("%s ERROR: LogProcessor: channel error\n", timeStamp)
 					return
 				}
-				if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(logFilename) == "EVENTLOG" {
+				if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(lStruct.filename) == "EVENTLOG" {
 					_systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
 				} else {
-					if strings.ToUpper(lStruct.filename) == strings.ToUpper(logFilename) {
+					if strings.ToUpper(lStruct.filename) == strings.ToUpper(current.logFilename) {
 						_osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
-					} else if strings.ToUpper(lStruct.filename) == strings.ToUpper(accessLog) {
+					} else if strings.ToUpper(lStruct.filename) == strings.ToUpper(current.accessLog) {
 						_osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
 					} else {
 						_osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")
@@ -657,12 +684,14 @@ func GetFunctionName() string {
 func Printf(level string, format string, a ...any) (int, error) {
 	message := fmt.Sprintf(format, a...)
 	formatString := time.RFC1123
-	if readconfig.Config.Logging.MilliSeconds {
+	current.Mu.Lock()
+	defer current.Mu.Unlock()
+	if current.msec {
 		formatString = "Mon, 02 Jan 2006 15:04:05.000 MST"
 	}
+
 	timeStamp := time.Now().Format(formatString)
-	logFilename := readconfig.Config.Logging.File
-	line := logStruct{time: timeStamp, filename: logFilename, level: level, message: message}
+	line := logStruct{time: timeStamp, filename: current.logFilename, level: level, message: message}
 	length := len(level + ": " + message)
 
 	logChan <- line
@@ -685,31 +714,30 @@ func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format s
 	var length int = 0
 	var err error = nil
 
-	logLevel := strings.ToUpper(readconfig.Config.Logging.Level)
-	logTrace := readconfig.Config.Logging.Trace
-
+	current.Mu.Lock()
+	defer current.Mu.Unlock()
 	message := fmt.Sprintf(format, a...)
 	if level == "INFO" {
 		switch {
 		case
-			logLevel == "DEBUG",
-			logLevel == "INFO":
+			current.logLevel == "DEBUG",
+			current.logLevel == "INFO":
 			length, err = fmt.Fprintf(logBuffer, "%s INFO: %s", timeStamp, message)
 		default:
 		}
 	} else if level == "DEBUG" {
 		switch {
 		case
-			logLevel == "DEBUG":
+			current.logLevel == "DEBUG":
 			length, err = fmt.Fprintf(logBuffer, "%s DEBUG: %s", timeStamp, message)
 		default:
 		}
 	} else if level == "WARNING" {
 		switch {
 		case
-			logLevel == "DEBUG",
-			logLevel == "INFO",
-			logLevel == "WARNING":
+			current.logLevel == "DEBUG",
+			current.logLevel == "INFO",
+			current.logLevel == "WARNING":
 			length, err = fmt.Fprintf(logBuffer, "%s WARNING: %s", timeStamp, message)
 		default:
 		}
@@ -718,7 +746,7 @@ func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format s
 	} else if level == "ACCESS" || level == "STARTLOG" {
 		length, err = fmt.Fprintf(logBuffer, "%s %s: %s", timeStamp, level, message)
 	} else if level == "TRACE" {
-		if logTrace {
+		if current.logTrace {
 			length, err = fmt.Fprintf(logBuffer, "%s TRACE: %s", timeStamp, message)
 		}
 	} else {

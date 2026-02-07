@@ -2,7 +2,6 @@ package logging
 
 import (
 	"fmt"
-	"myproxy/readconfig"
 	"time"
 )
 
@@ -73,8 +72,10 @@ func humanReadableBitrate(bps float64) string {
 
 func AccesslogWrite(record AccessLogRecord) (int, error) {
 	var accesslogFilename string = "STDOUT"
-	if readconfig.Config != nil {
-		accesslogFilename = readconfig.Config.Logging.AccessLog
+	current.Mu.Lock()
+	defer current.Mu.Unlock()
+	if current.accessLog != "" {
+		accesslogFilename = current.accessLog
 	}
 	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
 	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
@@ -88,8 +89,10 @@ func AccesslogWrite(record AccessLogRecord) (int, error) {
 
 func AccesslogWriteStart(record AccessLogRecord) (int, error) {
 	var accesslogFilename string = "STDOUT"
-	if readconfig.Config != nil {
-		accesslogFilename = readconfig.Config.Logging.AccessLog
+	current.Mu.Lock()
+	defer current.Mu.Unlock()
+	if current.accessLog != "" {
+		accesslogFilename = current.accessLog
 	}
 	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
 	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
