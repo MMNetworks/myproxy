@@ -51,7 +51,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 	// Read first 2 bytes of weboscket frame header
 	n, err := conn.Read(localBuf[:2])
 	if err != nil || n != 2 {
-		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read %d error: %v\n", rType, sessionNo, n, err)
+		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Read %d error: %v\n", rType, sessionNo, n, err)
 		return 0, err
 	}
 	fin = localBuf[0]&0x80 != 0
@@ -67,7 +67,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 		// Read 2 bytes for length
 		n, err := conn.Read(localBuf[:2])
 		if err != nil || n != 2 {
-			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read %d error: %v\n", rType, sessionNo, n, err)
+			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Read %d error: %v\n", rType, sessionNo, n, err)
 			return 0, err
 		}
 		payloadLen = int(binary.BigEndian.Uint16(localBuf[:2]))
@@ -78,7 +78,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 		// Read 8 bytes for length
 		n, err := conn.Read(localBuf[:8])
 		if err != nil || n != 8 {
-			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read %d error: %v\n", rType, sessionNo, n, err)
+			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Read %d error: %v\n", rType, sessionNo, n, err)
 			return 0, err
 		}
 		payloadLen = int(binary.BigEndian.Uint64(localBuf[:8]))
@@ -90,7 +90,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 		// Read 4 bytes for mask
 		n, err := conn.Read(localBuf[:4])
 		if err != nil || n != 4 {
-			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read %d error: %v\n", rType, sessionNo, n, err)
+			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Read %d error: %v\n", rType, sessionNo, n, err)
 			return 0, err
 		}
 		copy(maskKey[:], localBuf[:4])
@@ -109,12 +109,12 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 	for dataLen < offset+payloadLen {
 		conn.SetReadDeadline(time.Now().Add(time.Duration(timeOut) * time.Second))
 		start := time.Now()
-		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d start read\n", rType, sessionNo)
+		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Start read\n", rType, sessionNo)
 		n, err := conn.Read(localBuf[:offset+payloadLen-dataLen])
 		elapsed := time.Since(start)
-		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read of %d bytes took %d milliseconds\n", rType, sessionNo, n, elapsed.Milliseconds())
+		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Read of %d bytes took %d milliseconds\n", rType, sessionNo, n, elapsed.Milliseconds())
 		if err != nil || dataLen+n > offset+payloadLen {
-			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d read %d error: %v\n", rType, sessionNo, dataLen+n, err)
+			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Read %d error: %v\n", rType, sessionNo, dataLen+n, err)
 			return 0, err
 		}
 		copy(mbuf[dataLen:], localBuf[:n])

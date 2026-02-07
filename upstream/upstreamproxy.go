@@ -45,7 +45,7 @@ func (pR *ProxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	defer pR.proxyMutex.Unlock()
 	proxy := ctx.UpstreamProxy
 	if proxy == "" {
-		logging.Printf("ERROR", "proxyRoundTrip: SessionID:%d upstream proxy not set.\n", ctx.SessionNo)
+		logging.Printf("ERROR", "proxyRoundTrip: SessionID:%d Upstream proxy not set.\n", ctx.SessionNo)
 	} else {
 		logging.Printf("DEBUG", "proxyRoundTrip: SessionID:%d Request Method/Scheme: %s/%s\n", ctx.SessionNo, req.Method, req.URL.Scheme)
 		if req.Method == "CONNECT" || req.URL.Scheme == "https" {

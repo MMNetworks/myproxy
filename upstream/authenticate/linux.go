@@ -190,14 +190,14 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 			OverwriteResponse(ctx, resp, negoResp)
 			return errors.New("no Negotiate challenge received")
 		}
-		logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d negotiate challenge: '%s'\n", ctx.SessionNo, challenge[1])
+		logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Negotiate challenge: '%s'\n", ctx.SessionNo, challenge[1])
 		challengeMessage, err := base64.StdEncoding.DecodeString(challenge[1])
 		if err != nil {
 			logging.Printf("ERROR", "DoNegotiateProxyAuth: SessionID:%d Could not base64 decode the Negotiate challenge: %v\n", ctx.SessionNo, err)
 			OverwriteResponse(ctx, resp, negoResp)
 			return err
 		}
-		logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d negotiate authorization '%s'\n", ctx.SessionNo, base64.StdEncoding.EncodeToString(challengeMessage))
+		logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Negotiate authorization '%s'\n", ctx.SessionNo, base64.StdEncoding.EncodeToString(challengeMessage))
 		//	authenticateMessage, err := nego.ProcessChallenge(challengeMessage, proxyUsername, proxyPassword, false)
 		//	if err != nil {
 		//		logging.Printf("INFO", "Proxy: DoNegotiateProxyAuth: nego> Could not process the negotiate challenge: %v\n", err)

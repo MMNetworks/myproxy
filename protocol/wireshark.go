@@ -166,7 +166,7 @@ func acceptWireshark(listener net.Listener) {
 			if !hasSlash {
 				ipAddr := net.ParseIP(cidrStr)
 				if ipAddr == nil {
-					logging.Printf("ERROR", "AcceptWireshark: SessionID:%d source address %s is not an IP\n", 0, cidrStr)
+					logging.Printf("ERROR", "AcceptWireshark: SessionID:%d Source address %s is not an IP\n", 0, cidrStr)
 					continue
 				}
 				if ipAddr.To4() != nil {
@@ -322,7 +322,7 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	// Create IP layer
 	ipAddr := net.ParseIP(srcIP)
 	if ipAddr == nil {
-		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
 		return errors.New("Not an IP")
 	}
 
@@ -469,7 +469,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	// Create IP layer
 	ipAddr := net.ParseIP(srcIP)
 	if ipAddr == nil {
-		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
 		return errors.New("Not an IP")
 	}
 
@@ -558,7 +558,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	// Create IP layer
 	ipAddr = net.ParseIP(srcIP)
 	if ipAddr == nil {
-		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
 		return errors.New("Not an IP")
 	}
 
@@ -649,7 +649,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	// Create IP layer
 	ipAddr = net.ParseIP(srcIP)
 	if ipAddr == nil {
-		logging.Printf("ERROR", "WriteWireshark: SessionID:%d source address %s is not an IP\n", sessionNo, srcIP)
+		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
 		return errors.New("Not an IP")
 	}
 

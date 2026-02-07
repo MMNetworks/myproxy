@@ -237,7 +237,7 @@ func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, b
 		logging.Printf("DEBUG", "HasVirus: SessionID:%d Get results from clamd\n", sessionNo)
 		// Read and print scan results
 		for result := range resultChan {
-			logging.Printf("DEBUG", "HasVirus: SessionID:%d clamd scan result: Status:%s Raw: %s\n", sessionNo, result.Status, result.Raw)
+			logging.Printf("DEBUG", "HasVirus: SessionID:%d Clamd scan result: Status:%s Raw: %s\n", sessionNo, result.Status, result.Raw)
 			//RES_OK          = "OK"           // No virus found
 			//RES_FOUND       = "FOUND"        // Virus or malware detected
 			//RES_ERROR       = "ERROR"        // General error during scanning

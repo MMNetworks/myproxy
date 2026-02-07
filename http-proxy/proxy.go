@@ -164,7 +164,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 		logging.Printf("ERROR", "NetDial: SessionID:%d Error connecting to address: %s elapsed time: %v error: %v\n", ctx.SessionNo, address, elapsed, err)
 		return nil, err
 	}
-	logging.Printf("DEBUG", "NetDial: SessionID:%d connected to ip: %s elapsed time: %v\n", ctx.SessionNo, conn.RemoteAddr().String(), elapsed)
+	logging.Printf("DEBUG", "NetDial: SessionID:%d Connected to ip: %s elapsed time: %v\n", ctx.SessionNo, conn.RemoteAddr().String(), elapsed)
 
 	ctx.AccessLog.DestinationIP = conn.RemoteAddr().String()
 	return conn, err
@@ -172,7 +172,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 
 func (pd *proxyDialer) queryResolvers(ctx *Context, name string) ([]string, string, error) {
 	if len(pd.resolvers) == 0 {
-		logging.Printf("ERROR", "queryResolvers: SessionID:%d no resolvers configured\n", ctx.SessionNo)
+		logging.Printf("ERROR", "queryResolvers: SessionID:%d No resolvers configured\n", ctx.SessionNo)
 		return nil, "", errors.New("no resolvers configured")
 	}
 
@@ -215,7 +215,7 @@ func (pd *proxyDialer) queryResolvers(ctx *Context, name string) ([]string, stri
 
 	if firstErr == nil {
 		firstErr = errors.New("all resolvers returned empty answers")
-		logging.Printf("ERROR", "resolveRace: SessionID:%d all resolvers returned empty answers\n", ctx.SessionNo)
+		logging.Printf("ERROR", "resolveRace: SessionID:%d All resolvers returned empty answers\n", ctx.SessionNo)
 	}
 	return nil, "all", firstErr
 }
@@ -227,22 +227,22 @@ func (pd *proxyDialer) queryResolver(ctx *Context, ctxResolvers context.Context,
 	ipsv4, err2 := pd.queryRecord(ctx, ctxResolvers, resolver, name, dns.TypeA)
 
 	if err1 != nil && err1 != context.Canceled && err1 != context.DeadlineExceeded {
-		logging.Printf("ERROR", "queryResolver: SessionID:%d no AAAA answers from %s error: %v\n", ctx.SessionNo, resolver, err1)
+		logging.Printf("ERROR", "queryResolver: SessionID:%d No AAAA answers from %s error: %v\n", ctx.SessionNo, resolver, err1)
 	}
 	if err1 != nil && err2 != context.Canceled && err2 != context.DeadlineExceeded {
-		logging.Printf("ERROR", "queryResolver: SessionID:%d no A answers from %s error: %v\n", ctx.SessionNo, resolver, err2)
+		logging.Printf("ERROR", "queryResolver: SessionID:%d No A answers from %s error: %v\n", ctx.SessionNo, resolver, err2)
 	}
 	if err1 != nil && err2 != nil {
 		if err1 != context.Canceled && err1 != context.DeadlineExceeded && err2 != context.Canceled && err2 != context.DeadlineExceeded {
-			logging.Printf("ERROR", "queryResolver: SessionID:%d no A/AAAA answers from %s\n", ctx.SessionNo, resolver)
+			logging.Printf("ERROR", "queryResolver: SessionID:%d No A/AAAA answers from %s\n", ctx.SessionNo, resolver)
 			return nil, errors.New("no A/AAAA answer")
 		} else {
-			logging.Printf("DEBUG", "queryResolver: SessionID:%d no AAAA answers from %s error: context was canceled\n", ctx.SessionNo, resolver)
+			logging.Printf("DEBUG", "queryResolver: SessionID:%d No AAAA answers from %s error: context was canceled\n", ctx.SessionNo, resolver)
 			return nil, context.Canceled
 		}
 	}
 	if len(ipsv6) == 0 && len(ipsv4) == 0 {
-		logging.Printf("ERROR", "queryResolver: SessionID:%d no A/AAAA answers from %s error: empty answers\n", ctx.SessionNo, resolver)
+		logging.Printf("ERROR", "queryResolver: SessionID:%d No A/AAAA answers from %s error: empty answers\n", ctx.SessionNo, resolver)
 		return nil, errors.New("no A/AAAA answer")
 
 	}
@@ -415,7 +415,7 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 				}
 			} else {
 				if dctx.Err() == context.Canceled || dctx.Err() == context.DeadlineExceeded {
-					logging.Printf("DEBUG", "Dial: SessionID:%d connecting to address %s context was canceled\n", ctx.SessionNo, address)
+					logging.Printf("DEBUG", "Dial: SessionID:%d Connecting to address %s context was canceled\n", ctx.SessionNo, address)
 				} else {
 					logging.Printf("ERROR", "Dial: SessionID:%d Error connecting to address %s error: %v\n", ctx.SessionNo, address, err)
 				}

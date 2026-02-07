@@ -302,7 +302,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	}
 
 	if proxy == "" {
-		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d upstream proxy not set\n", ctx.SessionNo)
+		logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d Upstream proxy not set\n", ctx.SessionNo)
 		return true, nil
 	}
 
@@ -646,7 +646,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			logging.Printf("DEBUG", "doFtp: SessionID:%d Storing File: %s\n", ctx.SessionNo, r.URL.Path)
 			ioBuf, err := io.ReadAll(r.Body)
 			if err != nil {
-				logging.Printf("ERROR", "doFtp: SessionID:%d could not receive File %v\n", ctx.SessionNo, err)
+				logging.Printf("ERROR", "doFtp: SessionID:%d Could not receive File %v\n", ctx.SessionNo, err)
 				logging.Printf("DEBUG", "doFtp: SessionID:%d Error writing file.\n", ctx.SessionNo)
 				ctx.doError("Ftp", ErrRemoteConnect, err)
 				ctx.AccessLog.Status = "500 " + err.Error()
@@ -1479,12 +1479,12 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			}
 			remoteWrite = false
 			if !remoteRead {
-				logging.Printf("DEBUG", "doMitm: SessionID:%d remote close write\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d Remote close write\n", ctx.SessionNo)
 				remoteConn.Close()
 			}
 			hijRead = false
 			if !hijWrite {
-				logging.Printf("DEBUG", "doMitm: SessionID:%d hij close read\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d Hij close read\n", ctx.SessionNo)
 				hijConn.Close()
 			}
 		}()
@@ -1563,12 +1563,12 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			}
 			remoteRead = false
 			if !remoteWrite {
-				logging.Printf("DEBUG", "doMitm: SessionID:%d remote close read\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d Remote close read\n", ctx.SessionNo)
 				remoteConn.Close()
 			}
 			hijWrite = false
 			if !hijRead {
-				logging.Printf("DEBUG", "doMitm: SessionID:%d hij close write\n", ctx.SessionNo)
+				logging.Printf("DEBUG", "doMitm: SessionID:%d Hij close write\n", ctx.SessionNo)
 				hijConn.Close()
 			}
 		}()
@@ -1754,7 +1754,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		} else {
 			host = r.Host
 		}
-		logging.Printf("DEBUG", "doResponse: SessionID:%d connection upgrade: %s\n", ctx.SessionNo, upgrade)
+		logging.Printf("DEBUG", "doResponse: SessionID:%d Connection upgrade: %s\n", ctx.SessionNo, upgrade)
 		if !HasPort.MatchString(host) {
 			switch r.URL.Scheme {
 			case "http":

@@ -128,7 +128,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 		return 0
 	}
 	if !matchURI {
-		logging.Printf("DEBUG", "doTLSBreak: SessionID:%d regex does not match. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uriRedacted)
+		logging.Printf("DEBUG", "doTLSBreak: SessionID:%d Regex does not match. regex: %s URI: %s\n", ctx.SessionNo, incExcRex, uriRedacted)
 		return 0
 	}
 
@@ -141,7 +141,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 	if !hasSlash {
 		ipAddr := net.ParseIP(cidrStr)
 		if ipAddr == nil {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d source address %s is not an IP\n", ctx.SessionNo, cidrStr)
+			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Source address %s is not an IP\n", ctx.SessionNo, cidrStr)
 			return 0
 		}
 		if ipAddr.To4() != nil {
@@ -336,7 +336,7 @@ func setReadTimeout(ctx *httpproxy.Context) {
 		if !hasSlash {
 			ipAddr := net.ParseIP(cidrStr)
 			if ipAddr == nil {
-				logging.Printf("ERROR", "setReadTimeout: SessionID:%d source address %s is not an IP\n", ctx.SessionNo, cidrStr)
+				logging.Printf("ERROR", "setReadTimeout: SessionID:%d Source address %s is not an IP\n", ctx.SessionNo, cidrStr)
 				continue
 			}
 			if ipAddr.To4() != nil {
