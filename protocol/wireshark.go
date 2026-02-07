@@ -200,7 +200,6 @@ func acceptWireshark(listener net.Listener) {
 			}
 
 		}
-		readconfig.Config.Wireshark.Mu.Unlock()
 		if !matchRemote {
 			logging.Printf("INFO", "AcceptWireshark: SessionID:%d Did not accept connection from %s\n", 0, remoteAddr)
 			conn.Close()

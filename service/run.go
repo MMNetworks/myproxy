@@ -392,7 +392,6 @@ func setReadTimeout(ctx *httpproxy.Context) {
 		}
 		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d cidr %s does not match IP %s\n", ctx.SessionNo, cidrStr, connectionIP)
 	}
-	readconfig.Config.WebSocket.Mu.Unlock()
 	logging.Printf("INFO", "setReadTimeout: SessionID:%d Set timeout for %s: %d\n", ctx.SessionNo, uri, ctx.ReadTimeout)
 	return
 }
