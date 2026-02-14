@@ -2,9 +2,11 @@ package httpproxy
 
 import (
 	dns "codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnshttp"
 	"codeberg.org/miekg/dns/rdata"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"myproxy/logging"
 	"myproxy/protocol"
@@ -12,6 +14,7 @@ import (
 	"myproxy/viruscheck"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -76,10 +79,14 @@ type Proxy struct {
 	// clamd Client
 	ClamdStruct *viruscheck.ClamdStruct
 
+	// DoH Settings
+	DoHProxyList map[string]string
+	DoHRt        map[string]http.RoundTripper
+
 	signer *CaSigner
 }
 
-// Define Dialer with Resolvers
+// Define Dialer for Proxy with Resolvers
 type proxyDialer struct {
 	resolvers  []string
 	timeout    time.Duration
@@ -138,10 +145,9 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 
 	logging.Printf("DEBUG", "NetDial: SessionID:%d Connecting to address: %s\n", ctx.SessionNo, address)
 
-	if len(readconfig.Config.Connection.DNSServers) > 0 {
-		// Custom resolver that forces configred DNS servers
-		// Need round robin and stickyness
-		//
+	// Exclude Session 0 as this would create a DoH via proxy loop
+	if len(readconfig.Config.Connection.DNSServers) > 0 && ctx.SessionNo != 0 {
+		// Custom dialer with resolver that forces the use of configured DNS servers
 		pDialer := proxyDialer{
 			resolvers:     readconfig.Config.Connection.DNSServers,
 			timeout:       timeOut * time.Second,
@@ -153,6 +159,7 @@ func NetDial(ctx *Context, network, address string) (net.Conn, error) {
 		}
 		conn, err = pDialer.Dial(ctx, "tcp", address)
 	} else {
+		// System Dialer * DNS resolvers
 		newDial := net.Dialer{
 			Timeout:   timeOut * time.Second, // Set the timeout duration
 			KeepAlive: keepAlive * time.Second,
@@ -186,6 +193,8 @@ func (pd *proxyDialer) queryResolvers(ctx *Context, name string) ([]string, stri
 	ctxResolvers, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Resolve against all configured resolvers in parallel
+	// Fastest AAAA & A responding resolver wins
 	for _, r := range pd.resolvers {
 		resolver := r
 		go func() {
@@ -223,17 +232,18 @@ func (pd *proxyDialer) queryResolvers(ctx *Context, name string) ([]string, stri
 func (pd *proxyDialer) queryResolver(ctx *Context, ctxResolvers context.Context, resolver, name string) ([]string, error) {
 	var ips []string
 
+	// Resolve AAAA and A records
 	ipsv6, err1 := pd.queryRecord(ctx, ctxResolvers, resolver, name, dns.TypeAAAA)
 	ipsv4, err2 := pd.queryRecord(ctx, ctxResolvers, resolver, name, dns.TypeA)
 
-	if err1 != nil && err1 != context.Canceled && err1 != context.DeadlineExceeded {
+	if err1 != nil && errors.Is(err1, context.Canceled) && errors.Is(err1, context.DeadlineExceeded) {
 		logging.Printf("ERROR", "queryResolver: SessionID:%d No AAAA answers from %s error: %v\n", ctx.SessionNo, resolver, err1)
 	}
-	if err1 != nil && err2 != context.Canceled && err2 != context.DeadlineExceeded {
+	if err2 != nil && errors.Is(err2, context.Canceled) && errors.Is(err2, context.DeadlineExceeded) {
 		logging.Printf("ERROR", "queryResolver: SessionID:%d No A answers from %s error: %v\n", ctx.SessionNo, resolver, err2)
 	}
 	if err1 != nil && err2 != nil {
-		if err1 != context.Canceled && err1 != context.DeadlineExceeded && err2 != context.Canceled && err2 != context.DeadlineExceeded {
+		if errors.Is(err1, context.Canceled) && errors.Is(err1, context.DeadlineExceeded) && errors.Is(err2, context.Canceled) && errors.Is(err2, context.DeadlineExceeded) {
 			logging.Printf("ERROR", "queryResolver: SessionID:%d No A/AAAA answers from %s\n", ctx.SessionNo, resolver)
 			return nil, errors.New("no A/AAAA answer")
 		} else {
@@ -246,14 +256,20 @@ func (pd *proxyDialer) queryResolver(ctx *Context, ctxResolvers context.Context,
 		return nil, errors.New("no A/AAAA answer")
 
 	}
+	// return ipv6 & ipv4 IPs
 	ips = append(ips, ipsv6...)
 	ips = append(ips, ipsv4...)
 	return ips, nil
 }
 
 func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, resolver, name string, qtype uint16) ([]string, error) {
+	var network string
+	var address string
+	var client *dns.Client
+	var httpClient *http.Client
 	m := dns.NewMsg(ensureDot(name), qtype)
-	c := dns.NewClient()
+	m.ID = dns.ID()
+	m.RecursionDesired = true
 
 	var cancel context.CancelFunc
 	if pd.dnsTimeout > 0 {
@@ -261,35 +277,200 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 		defer cancel()
 	}
 
-	start := time.Now()
-	r, _, err := c.Exchange(ctxResolvers, m, "udp", resolver)
-	if err != nil {
-		if err == context.Canceled || err == context.DeadlineExceeded {
-			logging.Printf("DEBUG", "queryRecord: SessionID:%d Resolver %s error: udp context was canceled\n", ctx.SessionNo, resolver)
-			return nil, ctxResolvers.Err()
-		} else {
-			logging.Printf("ERROR", "queryRecord: SessionID:%d udp exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
-			return nil, errors.New("udp exchange failed")
-		}
-	}
-	elapsedUDP := time.Since(start)
+	var r *dns.Msg
+	var err error
 
-	if r.Truncated {
-		logging.Printf("DEBUG", "queryRecord: SessionID:%d udp response truncated from %s for %s; failing back to tcp elapsed time: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsedUDP)
-		start := time.Now()
-		r, _, err = c.Exchange(ctxResolvers, m, "tcp", resolver)
-		elapsedTCP := time.Since(start)
+	if strings.HasPrefix(resolver, "https://") {
+		// DoH queries
+		// Can be via proxy, Netdial avoids loop when proxy name needs resolving too
+		//
+		u, err := url.Parse(resolver)
 		if err != nil {
-			if err == context.Canceled || err == context.DeadlineExceeded {
-				logging.Printf("DEBUG", "queryRecord: SessionID:%d Resolver %s error: tcp context was canceled\n", ctx.SessionNo, resolver)
-				return nil, ctxResolvers.Err()
+			logging.Printf("ERROR", "queryRecord: SessionID:%d Could not parse resolver %s: %v\n", ctx.SessionNo, resolver, err)
+			return nil, err
+		}
+		u.Path = ""
+		var TLSConfig *tls.Config
+		if readconfig.Config.Connection.CAfile != "" {
+			caCertPool := x509.NewCertPool()
+			if readconfig.Config.Connection.CAfile != "insecure" {
+				caCert, err := os.ReadFile(readconfig.Config.Connection.CAfile)
+				if err != nil {
+					logging.Printf("ERROR", "queryRecord: SessionID:%d Could not read CA bundle %s: %v\n", ctx.SessionNo, readconfig.Config.Connection.CAfile, err)
+					return nil, err
+				}
+				caCertPool.AppendCertsFromPEM(caCert)
+				TLSConfig = &tls.Config{
+					ClientCAs: caCertPool,
+				}
 			} else {
-				logging.Printf("ERROR", "queryRecord: SessionID:%d tcp exchange failed after truncation from %s for %s elapsed time: %v  error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsedTCP, err)
-				return nil, errors.New("tcp exchange failed after truncation")
+				TLSConfig = &tls.Config{
+					ClientCAs:          caCertPool,
+					InsecureSkipVerify: true, // Skip certificate verification
+				}
+			}
+		} else {
+			// Default TLS config
+			TLSConfig = &tls.Config{}
+		}
+		host := u.Hostname()
+		if net.ParseIP(host) == nil {
+			TLSConfig.ServerName = host
+		}
+		TLSConfig.NextProtos = []string{"h2", "http/1.1"}
+
+		// Check if DoH request goes via upstream proxy
+		proxyURL := ctx.Prx.DoHProxyList[resolver]
+		if proxyURL == "" {
+			var transport = &http.Transport{
+				TLSClientConfig:       TLSConfig,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				ResponseHeaderTimeout: 3 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			}
+
+			httpClient = &http.Client{
+				Transport: transport,
+				Timeout:   pd.timeout,
+			}
+		} else {
+			// use proxy RoundTrip function
+			httpClient = &http.Client{
+				Transport: ctx.Prx.DoHRt[resolver],
+				Timeout:   pd.timeout,
 			}
 		}
-	}
+		// Use POST based DoH query
+		req, err := dnshttp.NewRequest("POST", resolver, m)
+		if err != nil {
+			logging.Printf("ERROR", "queryRecord: SessionID:%d Could not build DoH request: %v\n", ctx.SessionNo, err)
+			return nil, err
+		}
+		req = req.WithContext(ctxResolvers)
+		req.Header.Set("Content-Type", dnshttp.MimeType)
+		req.Header.Set("Accept", dnshttp.MimeType)
 
+		logging.Printf("DEBUG", "queryRecord: SessionID:%d Use DOH resolver %s\n", ctx.SessionNo, resolver)
+
+		start := time.Now()
+		resp, err2 := httpClient.Do(req)
+		elapsed := time.Since(start)
+
+		if err2 != nil {
+			logging.Printf("ERROR", "queryRecord: SessionID:%d Could not read DoH response elapsed time: %v error: %v\n", ctx.SessionNo, elapsed, err2)
+			return nil, err2
+		}
+		defer resp.Body.Close()
+
+		r, err = dnshttp.Response(resp)
+		if err != nil {
+			logging.Printf("ERROR", "queryRecord: SessionID:%d Could not unpack DoH response elapsed time: %v error: %v\n", ctx.SessionNo, elapsed, err)
+			return nil, err
+		}
+		logging.Printf("DEBUG", "queryRecord: SessionID:%d Successful response from %s for %s elapsed time: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed)
+	} else {
+		if strings.HasPrefix(resolver, "tls://") {
+			// TLS encrypted DNS queries
+			network = "tcp"
+			address = strings.TrimPrefix(resolver, "tls://")
+			if !strings.Contains(address, ":") {
+				address += ":853" // default DoT port
+			}
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				logging.Printf("DEBUG", "queryRecord: SessionID:%d Invalid DOT resolver %s\n", ctx.SessionNo, resolver)
+				return nil, errors.New("Invalid DOT resolver")
+			}
+
+			var TLSConfig *tls.Config
+			if readconfig.Config.Connection.CAfile != "" {
+				caCertPool := x509.NewCertPool()
+				if readconfig.Config.Connection.CAfile != "insecure" {
+					caCert, err := os.ReadFile(readconfig.Config.Connection.CAfile)
+					if err != nil {
+						logging.Printf("ERROR", "queryRecord: SessionID:%d Could not read CA bundle %s: %v\n", ctx.SessionNo, readconfig.Config.Connection.CAfile, err)
+						return nil, err
+					}
+					caCertPool.AppendCertsFromPEM(caCert)
+					TLSConfig = &tls.Config{
+						ClientCAs: caCertPool,
+					}
+				} else {
+					TLSConfig = &tls.Config{
+						ClientCAs:          caCertPool,
+						InsecureSkipVerify: true, // Skip certificate verification
+					}
+				}
+			} else {
+				// Default TLS config
+				TLSConfig = &tls.Config{}
+			}
+			if net.ParseIP(host) == nil {
+				TLSConfig.ServerName = host
+			}
+			TLSConfig.NextProtos = []string{"dot"}
+			transport := dns.NewTransport()
+			transport.TLSConfig = TLSConfig
+			transport.ReadTimeout = pd.dnsTimeout
+			transport.WriteTimeout = pd.dnsTimeout
+			client = dns.NewClient()
+			client.Transport = transport
+			logging.Printf("DEBUG", "queryRecord: SessionID:%d Use DOT resolver %s\n", ctx.SessionNo, resolver)
+		} else {
+			// Default: UDP with TCP fallback
+			transport := dns.NewTransport()
+			transport.ReadTimeout = pd.dnsTimeout
+			transport.WriteTimeout = pd.dnsTimeout
+			client = dns.NewClient()
+			client.Transport = transport
+			network = "udp"
+			address = resolver
+			if !strings.Contains(address, ":") {
+				address += ":53"
+			}
+			logging.Printf("DEBUG", "queryRecord: SessionID:%d Use UDP/TCP resolver %s\n", ctx.SessionNo, resolver)
+		}
+
+		start := time.Now()
+		r, _, err = client.Exchange(ctxResolvers, m, network, address)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				logging.Printf("DEBUG", "queryRecord: SessionID:%d Resolver %s error: context was canceled for %s record\n", ctx.SessionNo, resolver, dns.TypeToString[qtype])
+				return nil, ctxResolvers.Err()
+			} else {
+				if r == nil {
+					logging.Printf("ERROR", "queryRecord: SessionID:%d exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
+					return nil, errors.New("exchange failed")
+				} else if !r.Truncated {
+					logging.Printf("ERROR", "queryRecord: SessionID:%d exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
+					return nil, errors.New("exchange failed")
+				}
+			}
+		}
+		elapsed := time.Since(start)
+
+		if network == "udp" && r.Truncated {
+			// Only Fallback for UDP based queries
+			logging.Printf("DEBUG", "queryRecord: SessionID:%d udp response truncated from %s for %s; falling back to tcp elapsed time: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed)
+			start := time.Now()
+			r, _, err = client.Exchange(ctxResolvers, m, "tcp", resolver)
+			elapsed := time.Since(start)
+			if err != nil {
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					logging.Printf("DEBUG", "queryRecord: SessionID:%d Resolver %s error: tcp context was canceled for %s record\n", ctx.SessionNo, resolver, dns.TypeToString[qtype])
+					return nil, ctxResolvers.Err()
+				} else {
+					logging.Printf("ERROR", "queryRecord: SessionID:%d tcp exchange failed after truncation from %s for %s elapsed time: %v  error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed, err)
+					return nil, errors.New("tcp exchange failed after truncation")
+				}
+			}
+		}
+		logging.Printf("DEBUG", "queryRecord: SessionID:%d Successful response from %s for %s elapsed time: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed)
+
+	}
 	if r.Rcode != dns.RcodeSuccess {
 		logging.Printf("ERROR", "queryRecord: SessionID:%d Resolver rcode: %s from: %s for %s\n", ctx.SessionNo, dns.RcodeToString[r.Rcode], resolver, dns.TypeToString[qtype])
 		return nil, errors.New("rcode!=success")
@@ -466,7 +647,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			panic(rec)
 		}
 	}()
-	// Set deafult with NetDial
+	// Set default with NetDial
 	ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
 		DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
 			return NetDial(ctx, network, addr)

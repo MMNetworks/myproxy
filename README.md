@@ -161,7 +161,10 @@ When using myproxy as Windows service make sure the file paths are absolute path
 <li>connection:</li>
 <ul>
 <li>setting for connection timeouts. readtimeout(deafult = 0) can enable longstanding session e.g. websockets. For granular control see websocket settings</li>
-<li>When dns servers are specified the proxies own dial function is used instead of golangs default. The dns servers will be queried in parallel for fastest response ( no retry). The dialer tries connections over IPv6 first and then IPv4. If fallbackdelay is <= 0 the fastest response is selected from available IPv6 and IPv4 ips otherwise IPv4 will be delayed by fallbackdelay in milliseconds. The dialer can be limited to IPv6 or IPv4 only. You can select openDNS dns servers to apply category filtering.
+<li>When dns servers are specified the proxies own dial function is used instead of golangs default. The dns servers will be queried in parallel for fastest response ( no retry). The dialer tries connections over IPv6 first and then IPv4. If fallbackdelay is <= 0 the fastest response is selected from available IPv6 and IPv4 ips otherwise IPv4 will be delayed by fallbackdelay in milliseconds. The dialer can be limited to IPv6 or IPv4 only. </li>
+<li>It supports DoT when prefixing DNS resolver IP with tls://</li>
+<li>When selecting a DoH service i.e. prefix the DNS resolver with https:// it can be used over an upstream proxy. Any DNS loops will be avoided</li>
+<li>You can select openDNS dns servers to apply category filtering.</li>
 </ul>
 <li>mitm:</li>
 <ul>
@@ -242,6 +245,13 @@ logging:
   milliseconds: true 
 connection:
   dnsservers: 
+    - "tls://1.1.1.1"
+    - "tls://1.1.1.1"
+    - "https://dns.google"
+    - "https://cloudflare-dns.com"
+    - "https://dns.quad9.net"
+    - "https://dns.adguard.com"
+    - "https://dns.nextdns.io"
     - "1.1.1.1"
     - "8.8.8.8"
   dnstimeout: 2

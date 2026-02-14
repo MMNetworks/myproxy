@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -203,8 +204,8 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 	return 0
 }
 
-func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
-	r *http.Request) bool {
+func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter, r *http.Request) bool {
+	var err error
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// Handle local request has path "/info"
 	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
@@ -223,10 +224,11 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter,
 	logging.Printf("INFO", "OnAccept: SessionID:%d Process URL: %s\n", ctx.SessionNo, r.URL.Redacted())
 	setTLSBreak(ctx)
 	setReadTimeout(ctx)
-	err := upstream.SetProxy(ctx)
+	proxyURL, err := upstream.GetProxy(ctx, ctx.Req.URL.String())
 	if err != nil {
 		logging.Printf("ERROR", "OnAccept: SessionID:%d Failed to set upstream proxy: %v\n", ctx.SessionNo, err)
 	}
+	upstream.SetProxy(ctx, proxyURL)
 	return false
 }
 
@@ -469,30 +471,17 @@ func runProxy(args []string) {
 		}
 	}
 
-	// Create a new proxy with default certificate pair.
 	var prx *httpproxy.Proxy
 	if readconfig.Config.MITM.Enable {
 		prx, err = httpproxy.NewProxyCert(caCert, caKey)
 	} else {
+		// Create a new proxy with default certificate pair.
 		prx, err = httpproxy.NewProxy()
 	}
 	if err != nil {
 		logging.Printf("ERROR", "runProxy: Error instantiating proxy: %v\n", err)
 		return
 	}
-
-	//        prx.signer.Ca = &prx.Ca
-	//        if caCert == nil {
-	//                caCert = DefaultCaCert
-	//        }
-	//        if caKey == nil {
-	//                caKey = DefaultCaKey
-	//        }
-	//        var err error
-	//        prx.Ca, err = tls.X509KeyPair(caCert, caKey)
-	//        if err != nil {
-	//                return nil, err
-	//        }
 
 	// Set handlers.
 	prx.OnError = OnError
@@ -503,6 +492,33 @@ func runProxy(args []string) {
 	prx.OnConnect = OnConnect
 	prx.OnRequest = OnRequest
 	prx.OnResponse = OnResponse
+
+	prx.DoHProxyList = make(map[string]string)
+	//prx.DoHdial = make(map[string]string)
+	prx.DoHRt = make(map[string]http.RoundTripper)
+	for _, r := range readconfig.Config.Connection.DNSServers {
+		if strings.HasPrefix(r, "https://") {
+			// Set context and add Prx DoH variables
+			ctx := &httpproxy.Context{Prx: prx,
+				SessionNo: 0,
+			}
+			proxyURL, err := upstream.GetProxy(ctx, r)
+			if err != nil {
+				logging.Printf("ERROR", "runProxy: Failed to set upstream proxy for DoH: %v\n", err)
+			}
+			upstream.SetProxy(ctx, proxyURL)
+			prx.DoHProxyList[r] = proxyURL
+			if proxyURL != "" {
+				prx.DoHRt[r] = ctx.Rt
+				ctx.Req, err = http.NewRequest("PUT", r, bytes.NewBuffer([]byte("")))
+				if err != nil {
+					logging.Printf("ERROR", "runProxy: Failed to set Request for DoH: %v\n", err)
+					return
+				}
+				ctx.Req.Method = "CONNECT"
+			}
+		}
+	}
 
 	// Clamd connection
 	if readconfig.Config.Clamd.Enable {
