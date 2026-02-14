@@ -62,6 +62,7 @@ type Connection struct {
 	Timeout      int      `yaml:"timeout"`
 	Keepalive    int      `yaml:"keepalive"`
 	DNSServers   []string `yaml:"dnsservers"`
+	CAfile       string   `yaml:"rootcafile"`
 }
 type WSRule struct {
 	IP      string `yaml:"ip"`
@@ -567,6 +568,18 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 				configOut.Connection.DNSServers[i] = configOut.Connection.DNSServers[i] + ":53"
 			}
 		}
+	}
+	if configOut.Connection.CAfile != "" && configOut.Connection.CAfile != "insecure" {
+		caFilepath, err := filepath.Abs(configOut.Connection.CAfile)
+		if err != nil {
+			logging.Printf("ERROR", "ReadConfig: Getting file %s: %v\n", configOut.Connection.CAfile, err)
+			return nil, err
+		}
+		_, err = os.Stat(caFilepath)
+		if err != nil {
+			return nil, err
+		}
+		configOut.Connection.CAfile = caFilepath
 	}
 	if configOut.Connection.Timeout == 0 {
 		configOut.Connection.Timeout = 5
