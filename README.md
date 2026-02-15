@@ -18,6 +18,8 @@ myproxy logs to either stdout, a logfile, syslog(Linux) or event log(Windows). I
 
 On a multiuser system mproxy can user proxy Basic authentication to limit access to the myproxy port ( should only be used when listening on localhost ).
 
+The websocket, mitm, etc yaml input files set in the main configuration are monitored i.e. an changes will be applied w/o restarting myproxy. 
+
 ## Installing
 
 ```sh
