@@ -79,7 +79,11 @@ func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string)
 func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
+	isSSH, err := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
+	if err != nil {
+		logging.Printf("ERROR", "analyseAsSSHPacket: SessionID:%d regex error: %v\n", SessionNo, err)
+		return "", err
+	}
 	if isSSH {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
@@ -97,7 +101,11 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isUpgrade, _ := regexp.MatchString("\\r\\nUpgrade:.*\\r\\n", string(initialMessage))
+	isUpgrade, err := regexp.MatchString("\\r\\nUpgrade:.*\\r\\n", string(initialMessage))
+	if err != nil {
+		logging.Printf("ERROR", "analyseAsUpgradePacket: SessionID:%d regex error: %v\n", SessionNo, err)
+		return "", err
+	}
 	if isUpgrade {
 		msgString := string(initialMessage)
 		upgradePos := strings.Index(msgString, "Upgrade: ")
@@ -121,7 +129,11 @@ func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
 func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isHTTP, _ := regexp.MatchString("^[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
+	isHTTP, err := regexp.MatchString("^[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
+	if err != nil {
+		logging.Printf("ERROR", "analyseAsHTTPPacket: SessionID:%d regex error: %v\n", SessionNo, err)
+		return "", err
+	}
 	if isHTTP {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
@@ -635,7 +647,11 @@ END:
 func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isFTP, _ := regexp.MatchString("^(120|220|421).*\\r\\n", string(initialMessage))
+	isFTP, err := regexp.MatchString("^(120|220|421).*\\r\\n", string(initialMessage))
+	if err != nil {
+		logging.Printf("ERROR", "analyseAsFTPPacketResponse: SessionID:%d regex error: %v\n", SessionNo, err)
+		return "", err
+	}
 	if isFTP {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
@@ -653,7 +669,11 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isUpgrade, _ := regexp.MatchString("^HTTP/\\d\\.\\d 101 .*\\r\\n", string(initialMessage))
+	isUpgrade, err := regexp.MatchString("^HTTP/\\d\\.\\d 101 .*\\r\\n", string(initialMessage))
+	if err != nil {
+		logging.Printf("ERROR", "analyseAsUpgradePacketResponse: SessionID:%d regex error: %v\n", SessionNo, err)
+		return "", err
+	}
 	if isUpgrade {
 		msgString := string(initialMessage)
 		upgradePos := strings.Index(msgString, "Upgrade: ")
@@ -676,7 +696,11 @@ func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, err
 func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
+	isSSH, err := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
+	if err != nil {
+		logging.Printf("ERROR", "analyseAsSSHPacketResponse: SessionID:%d regex error: %v\n", SessionNo, err)
+		return "", err
+	}
 	if isSSH {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")

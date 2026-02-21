@@ -19,13 +19,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-	// "github.com/yassinebenaid/godump"
 )
 
-// reread pac file wait
-const READ_WAIT time.Duration = 600 * time.Second
+// ReadWait is the duration to wait before re-reading the PAC file (10 minutes)
+const ReadWait time.Duration = 600 * time.Second
 
-var timeNext time.Time = time.Now()
+var timeNext = time.Now()
 var pac *gpac.Parser
 
 func c2s(conn net.Conn) string {
@@ -280,8 +279,8 @@ func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 					timeNext = time.Now().Add(time.Duration(readconfig.Config.PAC.CacheTime) * time.Second)
 					cacheTime = time.Duration(readconfig.Config.PAC.CacheTime) * time.Second
 				} else {
-					timeNext = time.Now().Add(READ_WAIT)
-					cacheTime = READ_WAIT
+					timeNext = time.Now().Add(ReadWait)
+					cacheTime = ReadWait
 				}
 				logging.Printf("INFO", "SetProxy: SessionID:%d Set PAC cache time to %s\n", ctx.SessionNo, cacheTime.String())
 			}
