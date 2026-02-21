@@ -1,4 +1,0 @@
-. {
-    log # see atomdns-log(7)
-    whoami # see atomdns-whoami(7)
-}
