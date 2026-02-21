@@ -88,6 +88,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 
 	if rootCA == "insecure" {
 		// Replace the TLSClientConfig
+		logging.Printf("WARNING", "doTLSBreak: SessionID:%d TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n", ctx.SessionNo)
 		ctx.TLSConfig = &tls.Config{
 			InsecureSkipVerify: true, // Skip certificate verification
 		}
@@ -570,6 +571,7 @@ func runProxy(args []string) {
 				//			ClientAuth: tls.RequireAndVerifyClientCert, // enforce client cert
 			}
 		} else {
+			logging.Printf("WARNING", "runProxy: Listen TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n")
 			TLSConfig = &tls.Config{
 				ClientCAs:          caCertPool,
 				ClientAuth:         tls.RequestClientCert, // request client cert

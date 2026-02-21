@@ -90,6 +90,7 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 		var tlsConf *tls.Config
 		if readconfig.Config.Clamd.CAfile == "insecure" {
 			// Replace the TLSClientConfig
+			logging.Printf("WARNING", "ClamdConnect: ClamAV TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n")
 			tlsConf = &tls.Config{
 				InsecureSkipVerify: true, // Skip certificate verification
 				Certificates:       []tls.Certificate{cert},

@@ -304,6 +304,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 					ClientCAs: caCertPool,
 				}
 			} else {
+				logging.Printf("WARNING", "queryRecord: SessionID:%d DoH TLS certificate verification DISABLED for %s - vulnerable to MITM attacks!\n", ctx.SessionNo, resolver)
 				TLSConfig = &tls.Config{
 					ClientCAs:          caCertPool,
 					InsecureSkipVerify: true, // Skip certificate verification
@@ -399,6 +400,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 						ClientCAs: caCertPool,
 					}
 				} else {
+					logging.Printf("WARNING", "queryRecord: SessionID:%d DoT TLS certificate verification DISABLED for %s - vulnerable to MITM attacks!\n", ctx.SessionNo, resolver)
 					TLSConfig = &tls.Config{
 						ClientCAs:          caCertPool,
 						InsecureSkipVerify: true, // Skip certificate verification

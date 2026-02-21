@@ -1,11 +1,12 @@
 package protocol
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"github.com/gopacket/gopacket"
 	"github.com/gopacket/gopacket/layers"
 	"github.com/gopacket/gopacket/pcapgo"
-	"math/rand"
 	"myproxy/logging"
 	"myproxy/readconfig"
 	"net"
@@ -18,6 +19,18 @@ import (
 
 // Leverages Wireshark TCP connection reader
 // wireshark -k -i TCP@127.0.0.1:19000
+
+// secureRandomUint32 generates a cryptographically secure random uint32
+func secureRandomUint32() uint32 {
+	var b [4]byte
+	_, err := rand.Read(b[:])
+	if err != nil {
+		// If crypto/rand fails, log error and panic as this is a critical security function
+		logging.Printf("ERROR", "secureRandomUint32: Failed to generate secure random number: %v\n", err)
+		panic(err)
+	}
+	return binary.BigEndian.Uint32(b[:])
+}
 
 // Use Mutex for connection status check
 type MyMutex struct {
@@ -96,7 +109,6 @@ func ListenWireshark(listen string) error {
 	// defer listener.Close()
 
 	// Accept connection in background
-	rand.Seed(time.Now().UnixNano())
 	status.mu.Lock()
 	status.active = false
 	status.mu.Unlock()
@@ -297,8 +309,8 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	}
 
 	if tcpState.tcpSequence == 0 {
-		tcpState.tcpClientRand = rand.Uint32() & 0xFFFFFF // Avoid overflow by never starting to high
-		tcpState.tcpServerRand = rand.Uint32() & 0xFFFFFF
+		tcpState.tcpClientRand = secureRandomUint32() & 0xFFFFFF // Avoid overflow by never starting too high
+		tcpState.tcpServerRand = secureRandomUint32() & 0xFFFFFF
 		tcpState.wasRequest = true
 		tcpState.tcpLength = 0
 		tcpState.tcpSequence = 1
