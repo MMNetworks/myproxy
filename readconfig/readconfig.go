@@ -732,9 +732,9 @@ func openWithRetry(filename string, flag int, perm os.FileMode) (*os.File, error
 }
 
 func watchFiles(watcher *fsnotify.Watcher, configOut *Schema) {
-	var MITMFilePath string = ""
-	var WebSocketFilePath string = ""
-	var WiresharkFilePath string = ""
+	var MITMFilePath string
+	var WebSocketFilePath string
+	var WiresharkFilePath string
 	var err error
 
 	logLevel := strings.ToUpper(configOut.Logging.Level)
