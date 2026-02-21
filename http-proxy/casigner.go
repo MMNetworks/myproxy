@@ -3,11 +3,11 @@ package httpproxy
 import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"math/big"
-	mrand "math/rand"
 	"myproxy/logging"
 	"net"
 	"sort"
@@ -128,12 +128,11 @@ func SignHosts(ca tls.Certificate, hosts []string) (*tls.Certificate, error) {
 			template.DNSNames = append(template.DNSNames, h)
 		}
 	}
-	rnd := mrand.New(mrand.NewSource(serial.Int64()))
-	certPriv, err := ecdsa.GenerateKey(elliptic.P256(), rnd)
+	certPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	derBytes, err := x509.CreateCertificate(rnd, &template, x509ca, &certPriv.PublicKey, ca.PrivateKey)
+	derBytes, err := x509.CreateCertificate(rand.Reader, &template, x509ca, &certPriv.PublicKey, ca.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
