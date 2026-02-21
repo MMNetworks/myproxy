@@ -21,7 +21,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -491,7 +490,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	parsedURL, err := url.Parse(r.URL.String())
 	if err != nil {
 		logging.Printf("ERROR", "doFtp: SessionID:%d Failed to parse URL: %v\n", ctx.SessionNo, err)
-		return nil, err
+		return false, err
 	}
 	port := parsedURL.Port()
 	host := r.URL.Host
