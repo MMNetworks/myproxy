@@ -1,0 +1,41 @@
+on:
+  push:
+    paths:
+      - "internal/pack/*.go"
+      - "internal/unpack/*.go"
+      - "headerpack.go"
+      - "serve*.go"
+      - "msg.go"
+      - "udp*.go"
+  pull_request:
+    paths:
+      - "internal/pack/*.go"
+      - "internal/unpack/*.go"
+      - "headerpack.go"
+      - "serve*.go"
+      - "msg.go"
+      - "udp*.go"
+
+jobs:
+  test:
+    runs-on: atoom-tiny
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ vars.GOVERSION }}
+      - run: |
+          apt-get update
+          apt-get -y install dnsperf jq
+          go install golang.org/x/perf/cmd/benchstat@latest
+          (cd cmd/reflect; go build)
+          HOSTNAME=atoom-tiny
+          # Sleep here so we have the machine to ourselves.
+          sleep 60
+          (cd cmd/reflect; make new.txt)
+          REF=$(echo ${{ forgejo.ref }} | cut -d/ -f3)
+          echo ${{ forgejo.api_url}}/repos/${{ forgejo.repository }}/issues/${REF}/comments
+          echo "{\"body\": $(cd cmd/reflect; make stat | jq -sR .)}" | \
+                          curl --json @- \
+                          -H 'Authorization: token ${{ forgejo.token }}' \
+                          ${{ forgejo.api_url}}/repos/${{ forgejo.repository }}/issues/${REF}/comments

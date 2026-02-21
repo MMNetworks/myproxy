@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+SOURCE   := ../
+VERSION  := $(shell dpkg-parsechangelog --show-field version)
+BINARIES := atomdns
+
+%:
+	dh $@ --with sysuser
+
+override_dh_auto_configure:
+	dh_clean
+	cd $(SOURCE); CGO_ENABLED=0 go build
+
+override_dh_strip:
+
+override_dh_auto_install:
+	mkdir -p debian/atomdns/usr/bin
+	for i in $(BINARIES); do cp $(SOURCE)/`basename $$i` debian/atomdns/usr/bin; done
+	mkdir -p debian/atomdns/etc/atomdns && cp debian/Conffile debian/atomdns/etc/atomdns
+	cp -r $(SOURCE)man debian
