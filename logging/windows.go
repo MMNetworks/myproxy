@@ -13,10 +13,10 @@ import (
 var alreadyExists bool = false
 
 func _systemLog(timeStamp string, level string, format string, a ...any) (int, error) {
-	const stdoutLog string = "C:\\Temp\\myproxy_stdout.log"
-	var length int = 0
-	var err error = nil
-	var loggerName string = "myproxy"
+	const stdoutLog = "C:\\Temp\\myproxy_stdout.log"
+	var length int
+	var err error
+	var loggerName = "myproxy"
 	var wlog *eventlog.Log
 
 	current.Mu.Lock()

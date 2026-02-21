@@ -11,6 +11,15 @@ import (
 	"strings"
 )
 
+// Pre-compiled regular expressions for protocol detection
+var (
+	sshPattern         = regexp.MustCompile(`^SSH-\d\.\d.*`)
+	upgradePattern     = regexp.MustCompile(`\r\nUpgrade:.*\r\n`)
+	httpPattern        = regexp.MustCompile(`^[a-zA-Z]+ [^ ]+ HTTP/\d\.\d\r\n`)
+	ftpPattern         = regexp.MustCompile(`^(120|220|421).*\r\n`)
+	upgradeRespPattern = regexp.MustCompile(`^HTTP/\d\.\d 101 .*\r\n`)
+)
+
 func AnalyseFirstPacket(SessionNo int64, packet []byte) (string, string) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 
@@ -79,8 +88,7 @@ func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string)
 func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
-	if isSSH {
+	if sshPattern.Match([]byte(initialMessage)) {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
 		if strings.Index(msgString, "\r") < pos {
@@ -97,8 +105,7 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isUpgrade, _ := regexp.MatchString("\\r\\nUpgrade:.*\\r\\n", string(initialMessage))
-	if isUpgrade {
+	if upgradePattern.Match([]byte(initialMessage)) {
 		msgString := string(initialMessage)
 		upgradePos := strings.Index(msgString, "Upgrade: ")
 		lenUpgrade := len("Upgrade: ")
@@ -121,8 +128,7 @@ func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
 func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isHTTP, _ := regexp.MatchString("^[a-zA-Z]+ [^ ]+ HTTP/\\d\\.\\d\\r\\n", string(initialMessage))
-	if isHTTP {
+	if httpPattern.Match([]byte(initialMessage)) {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
 		if strings.Index(msgString, "\r") < pos {
@@ -635,8 +641,7 @@ END:
 func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isFTP, _ := regexp.MatchString("^(120|220|421).*\\r\\n", string(initialMessage))
-	if isFTP {
+	if ftpPattern.Match([]byte(initialMessage)) {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
 		if strings.Index(msgString, "\r") < pos {
@@ -653,8 +658,7 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isUpgrade, _ := regexp.MatchString("^HTTP/\\d\\.\\d 101 .*\\r\\n", string(initialMessage))
-	if isUpgrade {
+	if upgradeRespPattern.Match([]byte(initialMessage)) {
 		msgString := string(initialMessage)
 		upgradePos := strings.Index(msgString, "Upgrade: ")
 		lenUpgrade := len("Upgrade: ")
@@ -676,8 +680,7 @@ func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, err
 func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	initialMessage := cryptobyte.String(packet)
-	isSSH, _ := regexp.MatchString("^SSH-\\d\\.\\d.*", string(initialMessage))
-	if isSSH {
+	if sshPattern.Match([]byte(initialMessage)) {
 		msgString := string(initialMessage)
 		pos := strings.Index(msgString, "\n")
 		if strings.Index(msgString, "\r") < pos {

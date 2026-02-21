@@ -9,7 +9,6 @@ import (
 	"myproxy/logging"
 	"myproxy/readconfig"
 	"net/http"
-	"regexp"
 	"strings"
 )
 
@@ -34,8 +33,6 @@ func (pA *proxyAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	return http.ReadResponse(bufio.NewReader(conn), req)
 }
 
-// var Rt *proxyAuthRoundTripper
-
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var err error
@@ -47,24 +44,26 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 	proxyAuthValues := resp.Header.Values("Proxy-Authenticate")
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Proxy-Authenticate header: %s\n", ctx.SessionNo, proxyAuthValues)
 	// Get best match
-	var bestAuth string = ""
+	var bestAuth string
 	for _, v := range readconfig.Config.Proxy.Authentication {
 		logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Determine preferred authentication method: %s|%s\n", ctx.SessionNo, v, strings.Join(proxyAuthValues[:], ","))
-		best, _ := regexp.MatchString(strings.ToUpper(v), strings.ToUpper(strings.Join(proxyAuthValues[:], ",")))
-		if best {
+		authMethods := strings.ToUpper(strings.Join(proxyAuthValues[:], ","))
+		if strings.Contains(authMethods, strings.ToUpper(v)) {
 			logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Preferred method: %s\n", ctx.SessionNo, v)
 			bestAuth = v
 			break
 		}
 	}
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Selected authentication method: %s\n", ctx.SessionNo, bestAuth)
-	ntlm, _ := regexp.MatchString("NTLM", strings.ToUpper(strings.Join(proxyAuthValues[:], ",")))
-	nego, _ := regexp.MatchString("NEGOTIATE", strings.ToUpper(strings.Join(proxyAuthValues[:], ",")))
-	basic, _ := regexp.MatchString("BASIC", strings.ToUpper(strings.Join(proxyAuthValues[:], ",")))
+	authMethods := strings.ToUpper(strings.Join(proxyAuthValues[:], ","))
+	ntlm := strings.Contains(authMethods, "NTLM")
+	nego := strings.Contains(authMethods, "NEGOTIATE")
+	basic := strings.Contains(authMethods, "BASIC")
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Other possible methods: NTLM,Negotiate,Basic %v,%v,%v\n", ctx.SessionNo, ntlm, nego, basic)
-	ntlm, _ = regexp.MatchString("NTLM", strings.ToUpper(bestAuth))
-	nego, _ = regexp.MatchString("NEGOTIATE", strings.ToUpper(bestAuth))
-	basic, _ = regexp.MatchString("BASIC", strings.ToUpper(bestAuth))
+	bestAuthUpper := strings.ToUpper(bestAuth)
+	ntlm = strings.Contains(bestAuthUpper, "NTLM")
+	nego = strings.Contains(bestAuthUpper, "NEGOTIATE")
+	basic = strings.Contains(bestAuthUpper, "BASIC")
 	if ntlm {
 		err = DoNTLMProxyAuth(ctx, req, resp, "NTLM")
 		if err != nil {

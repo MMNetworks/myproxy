@@ -44,12 +44,12 @@ type Context struct {
 
 	// Original Proxy Roundtripper
 	// RoundTripper interface to obtain remote response.
-	// changes depening on upstream proxy
+	// changes depending on upstream proxy
 	Rt http.RoundTripper
 
 	// Original Proxy Dial
 	// Dial interface to connect to remote host.
-	// changes depening on upstream proxy
+	// changes depending on upstream proxy
 	Dial func(ctx *Context, network string, address string) (net.Conn, error)
 
 	//  Request / Response connection information for Websocket Connection
@@ -488,7 +488,11 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 
 	}
 
-	parsedURL, _ := url.Parse(r.URL.String())
+	parsedURL, err := url.Parse(r.URL.String())
+	if err != nil {
+		logging.Printf("ERROR", "doFtp: SessionID:%d Failed to parse URL: %v\n", ctx.SessionNo, err)
+		return nil, err
+	}
 	port := parsedURL.Port()
 	host := r.URL.Host
 	method := r.Method
@@ -723,9 +727,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 						return b, err
 					} else {
-						hasSlash, _ := regexp.MatchString("^/", r.URL.Path)
 						path := r.URL.Path
-						if hasSlash {
+						// Check if path starts with /
+						if strings.HasPrefix(path, "/") {
 							path = path[1:]
 						}
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
@@ -738,12 +742,18 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 						for _, file := range files {
 							if file.IsDir() {
 								logging.Printf("DEBUG", "doFtp: SessionID:%d %s dir %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), file.Name())
-								n, _ := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+								n, err := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+								if err != nil {
+									logging.Printf("ERROR", "doFtp: SessionID:%d Error writing directory entry: %v\n", ctx.SessionNo, err)
+								}
 								ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 							} else {
 								readableSize := formatSize(file.Size())
 								logging.Printf("DEBUG", "doFtp: SessionID:%d %s %s %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), readableSize, file.Name())
-								n, _ := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+								n, err := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+								if err != nil {
+									logging.Printf("ERROR", "doFtp: SessionID:%d Error writing file entry: %v\n", ctx.SessionNo, err)
+								}
 								ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
 							}
 						}

@@ -711,8 +711,8 @@ func osPrintf(logFilename string, level string, format string, a ...any) (int, e
 }
 
 func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format string, a ...any) (int, error) {
-	var length int = 0
-	var err error = nil
+	var length int
+	var err error
 
 	current.Mu.Lock()
 	defer current.Mu.Unlock()

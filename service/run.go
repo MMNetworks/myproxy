@@ -45,8 +45,8 @@ func setTLSBreak(ctx *httpproxy.Context) {
 		for _, rule := range readconfig.Config.MITM.Rules {
 			// IncExc string format (!|)src,(client|proxy);regex,rootCA
 			logging.Printf("DEBUG", "setTLSBreak: SessionID:%d Check against rule entry: %s,%s,%s,%s\n", ctx.SessionNo, rule.IP, rule.Client, rule.Regex, rule.CertFile)
-			isEmpty, _ := regexp.MatchString("^[ ]*$", rule.IP)
-			if isEmpty {
+			// Skip empty or whitespace-only rules
+			if strings.TrimSpace(rule.IP) == "" {
 				continue
 			}
 			tlsBreak := doTLSBreak(ctx, rule)
@@ -313,8 +313,8 @@ func setReadTimeout(ctx *httpproxy.Context) {
 	for _, rule := range readconfig.Config.WebSocket.Rules {
 		// IncExc string format (!|)src,(client|proxy);regex,timeout
 		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Check against Rules entry: %s,%s,%s,%d\n", ctx.SessionNo, rule.IP, rule.Client, rule.Regex, rule.Timeout)
-		isEmpty, _ := regexp.MatchString("^[ ]*$", rule.IP)
-		if isEmpty {
+		// Skip empty or whitespace-only rules
+		if strings.TrimSpace(rule.IP) == "" {
 			continue
 		}
 		timeOut = rule.Timeout

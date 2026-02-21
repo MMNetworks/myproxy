@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// Maximum certificate validity date (Y2038 limit for 32-bit timestamps)
+const maxCertValidityDate = "2038-01-19"
+
 // CaSigner is a certificate signer by CA certificate. It supports caching.
 type CaSigner struct {
 	// Ca specifies CA certificate. You must set before using.
@@ -100,7 +103,12 @@ func SignHosts(ca tls.Certificate, hosts []string) (*tls.Certificate, error) {
 		return nil, err
 	}
 	start := time.Unix(0, 0)
-	end, _ := time.Parse("2006-01-02", "2038-01-19")
+	end, err := time.Parse("2006-01-02", maxCertValidityDate)
+	if err != nil {
+		// This should never happen with a constant date
+		logging.Printf("ERROR", "SignHosts: Failed to parse max validity date: %v\n", err)
+		return nil, err
+	}
 	serial := hashSortedBigInt(append(hosts, "1"))
 	template := x509.Certificate{
 		SerialNumber:          serial,
