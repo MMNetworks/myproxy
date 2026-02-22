@@ -2,11 +2,12 @@ package upstream
 
 import (
 	"bufio"
+	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"github.com/darren/gpac"
 	"io"
-	"math/rand/v2"
+	"math/big"
 	"myproxy/http-proxy"
 	"myproxy/logging"
 	"myproxy/readconfig"
@@ -29,6 +30,18 @@ var pac *gpac.Parser
 
 func c2s(conn net.Conn) string {
 	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
+}
+
+// secureRandomInt generates a cryptographically secure random integer in the range [0, max)
+func secureRandomInt(max int) (int, error) {
+	if max <= 0 {
+		return 0, fmt.Errorf("max must be positive")
+	}
+	nBig, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0, err
+	}
+	return int(nBig.Int64()), nil
 }
 
 type ProxyRoundTripper struct {
@@ -327,8 +340,12 @@ func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 			}
 			// randomize proxy from list
 			if proxyOKCount >= 0 {
-				logging.Printf("DEBUG", "SetProxy: SessionID:%d Count of working proxies: %d\n", ctx.SessionNo, proxyOKCount)
-				randProxy := rand.IntN(proxyOKCount)
+				logging.Printf("DEBUG", "SetProxy: SessionID:%d Count of working proxies: %d\n", ctx.SessionNo, proxyOKCount+1)
+				randProxy, err := secureRandomInt(proxyOKCount + 1)
+				if err != nil {
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Failed to generate secure random number: %v\n", ctx.SessionNo, err)
+					randProxy = 0
+				}
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Chose proxy %d\n", ctx.SessionNo, randProxy)
 				if httpproxy.HasPort.MatchString(proxyOKList[randProxy]) {
 					ipos := strings.LastIndex(proxyOKList[randProxy], ":")
