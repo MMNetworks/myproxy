@@ -51,7 +51,7 @@ type Logging struct {
 	File         string `yaml:"file"`
 	AccessLog    string `yaml:"accesslog"`
 	Trace        bool   `yaml:"trace"`
-	MilliSeconds bool   `yaml:"msec"`
+	MilliSeconds bool   `yaml:"milliseconds"`
 }
 type Connection struct {
 	ReadTimeout  int      `yaml:"readtimeout"`
