@@ -34,7 +34,7 @@ go build myproxy.go version.go
 
 There are multiple ways to run myproxy. One option is to run it under systemd.  
 
-Create a myproxy.services file in $HOME/.config/systemd/user
+Create a myproxy.service file in $HOME/.config/systemd/user
 
 
 ```sh
