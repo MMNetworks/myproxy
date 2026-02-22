@@ -340,7 +340,7 @@ func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 			}
 			// randomize proxy from list
 			if proxyOKCount >= 0 {
-				logging.Printf("DEBUG", "SetProxy: SessionID:%d Count of working proxies: %d\n", ctx.SessionNo, proxyOKCount)
+				logging.Printf("DEBUG", "SetProxy: SessionID:%d Count of working proxies: %d\n", ctx.SessionNo, proxyOKCount+1)
 				randProxy, err := secureRandomInt(proxyOKCount + 1)
 				if err != nil {
 					logging.Printf("ERROR", "SetProxy: SessionID:%d Failed to generate secure random number: %v\n", ctx.SessionNo, err)
