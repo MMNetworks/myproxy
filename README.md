@@ -248,7 +248,7 @@ logging:
 connection:
   dnsservers: 
     - "tls://1.1.1.1"
-    - "tls://1.1.1.1"
+    - "tls://8.8.8.8"
     - "https://dns.google"
     - "https://cloudflare-dns.com"
     - "https://dns.quad9.net"
