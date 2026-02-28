@@ -189,7 +189,7 @@ The rules file content will be appended to the rules list
 </ul>
 <li>clamd:</li>
 <ul>
-<li>settings for clamd connection. This can be a unix socket or over TCP and HTTPS. You have to provide a client cert and key for MTLS to the provided HTTPS server which converts HTTPS requests into clamd. This was added to make sure remote clamd connections are protected and authenticated.</li>
+<li>settings for clamd connection. This can be a unix socket or over TCP and HTTPS. Client cert and key has to be provided for mTLS to the provided HTTPS server which converts HTTPS requests into clamd. This was added to make sure remote clamd connections are protected and authenticated which is not possible with plain TCP connections natively supported by clamd.</li>
 <li>clamd has also a setting to block virus infected traffic or only report and a setting to block when clamd is unavailable</li> 
 </ul>
 <li>websocket:</li>
