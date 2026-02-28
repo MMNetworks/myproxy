@@ -16,9 +16,9 @@ myproxy can read user passwords during startup instead of reading from YAML file
  
 myproxy logs to either stdout, a logfile, syslog(Linux) or event log(Windows). If run as a Windows service stdout is logged to c:\temp\myproxy_stdout.log.
 
-On a multiuser system mproxy can user proxy Basic authentication to limit access to the myproxy port ( should only be used when listening on localhost ).
+On a multiuser system mproxy can use proxy Basic authentication to limit access to the myproxy port ( should only be used when listening on localhost ).
 
-The websocket, mitm, etc yaml input files set in the main configuration are monitored i.e. an changes will be applied w/o restarting myproxy. 
+The websocket, mitm, etc yaml input files set in the main configuration are monitored i.e. any changes will be applied w/o restarting myproxy. 
 
 ## Installing
 
@@ -269,6 +269,7 @@ websocket:
   rulesfile: "websocketrules.yaml"
   rules:
    - ip:  "127.0.0.1/32"
+     client: "client"
      regex: ".*"
      timeout: 30
    - ip:  "192.168.0.0/16"
