@@ -406,7 +406,7 @@ func runProxy(args []string) {
 	var server *http.Server
 
 	if len(args) == 0 {
-		log.Printf("ERROR", "runProxy: Missing argument list\n")
+		log.Printf("ERROR: runProxy: Missing argument list\n")
 		os.Exit(1)
 	}
 	CommandLine := flag.NewFlagSet("runProxy", flag.ExitOnError)

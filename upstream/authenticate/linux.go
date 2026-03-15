@@ -48,7 +48,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 		}
 	}
 	if ntlmResp.StatusCode != http.StatusProxyAuthRequired {
-		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d Supported authentication methods: %s\n", ntlmResp.Header.Get("Proxy-Authenticate"), ctx.SessionNo)
+		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d Supported authentication methods: %s\n", ctx.SessionNo, ntlmResp.Header.Get("Proxy-Authenticate"))
 		OverwriteResponse(ctx, resp, ntlmResp)
 		return err
 	}
@@ -176,7 +176,7 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 			OverwriteResponse(ctx, resp, negoResp)
 			return err
 		} else if negoResp.StatusCode != http.StatusProxyAuthRequired {
-			logging.Printf("ERROR", "DoNegotiateProxyAuth: RoundTrip error: %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "DoNegotiateProxyAuth: SessionID:%d RoundTrip error: %v\n", ctx.SessionNo, err)
 			OverwriteResponse(ctx, resp, negoResp)
 			return err
 		}

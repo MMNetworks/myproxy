@@ -1802,7 +1802,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			logging.Printf("DEBUG", "doResponse: SessionID:%d Connection to host %s succeded\n", ctx.SessionNo, host)
 			err1 := r.Write(ctx.WebsocketState.WebsocketConn)
 			if err1 != nil {
-				logging.Printf("ERROR", "doResponse: SessionID:%d Could not send request to host: %v\n", ctx.SessionNo, host, err)
+				logging.Printf("ERROR", "doResponse: SessionID:%d Could not send request to host: %v\n", ctx.SessionNo, err)
 			}
 			reader := bufio.NewReader(ctx.WebsocketState.WebsocketConn)
 			resp, err = http.ReadResponse(reader, r)

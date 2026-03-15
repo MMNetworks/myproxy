@@ -27,7 +27,7 @@ func (pA *proxyAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 		return nil, errors.New("empty proxy connection")
 	}
 	if err := req.WriteProxy(conn); err != nil {
-		logging.Printf("ERROR", "proxyAuthRoundTripper: SessionID:%d Error writing to proxy connection: %s %v\n", ctx.SessionNo, err)
+		logging.Printf("ERROR", "proxyAuthRoundTripper: SessionID:%d Error writing to proxy connection: %v\n", ctx.SessionNo, err)
 		return nil, err
 	}
 	return http.ReadResponse(bufio.NewReader(conn), req)
