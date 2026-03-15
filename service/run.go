@@ -136,7 +136,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 
 	cidrStr := rule.IP
 	isNeg := strings.Index(cidrStr, "!") == 0
-	hasSlash := strings.Index(cidrStr, "/") > -1
+	hasSlash := strings.Contains(cidrStr, "/")
 	if isNeg {
 		cidrStr = cidrStr[1:]
 	}
@@ -308,6 +308,7 @@ func setReadTimeout(ctx *httpproxy.Context) {
 			timeOut = 0
 		}
 	}
+	ctx.ReadTimeout = timeOut
 
 	readconfig.Config.WebSocket.Mu.Lock()
 	defer readconfig.Config.WebSocket.Mu.Unlock()
@@ -332,7 +333,7 @@ func setReadTimeout(ctx *httpproxy.Context) {
 
 		cidrStr := rule.IP
 		isNeg := strings.Index(cidrStr, "!") == 0
-		hasSlash := strings.Index(cidrStr, "/") > -1
+		hasSlash := strings.Contains(cidrStr, "/")
 		if isNeg {
 			cidrStr = rule.IP[1:]
 		}
@@ -396,7 +397,6 @@ func setReadTimeout(ctx *httpproxy.Context) {
 		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d cidr %s does not match IP %s\n", ctx.SessionNo, cidrStr, connectionIP)
 	}
 	logging.Printf("INFO", "setReadTimeout: SessionID:%d Set timeout for %s: %d\n", ctx.SessionNo, uri, ctx.ReadTimeout)
-	return
 }
 
 func runProxy(args []string) {
@@ -616,5 +616,4 @@ func runProxy(args []string) {
 		logging.Printf("ERROR", "runProxy: ListenAndServer error: %v\n", err)
 	}
 
-	return
 }

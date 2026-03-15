@@ -67,7 +67,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 	}
 	// NTLM Step 3: Send Authorization Message
 	logging.Printf("DEBUG", "DoNTLMProxyAuth: SessionID:%d Processing NTLM challenge with username '%s' and password with length %d\n", ctx.SessionNo, proxyUsername, len(proxyPassword))
-	authenticateMessage, err := ntlmssp.ProcessChallenge(challengeMessage, proxyUsername, proxyPassword, false)
+	authenticateMessage, err := ntlmssp.NewAuthenticateMessage(challengeMessage, proxyUsername, proxyPassword, nil)
 	if err != nil {
 		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d Could not process the NTLM challenge: %v\n", ctx.SessionNo, err)
 		OverwriteResponse(ctx, resp, ntlmResp)

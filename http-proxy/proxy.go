@@ -383,7 +383,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 			host, _, err := net.SplitHostPort(address)
 			if err != nil {
 				logging.Printf("DEBUG", "queryRecord: SessionID:%d Invalid DOT resolver %s\n", ctx.SessionNo, resolver)
-				return nil, errors.New("Invalid DOT resolver")
+				return nil, errors.New("invalid dns over tcp  resolver")
 			}
 
 			var TLSConfig *tls.Config
@@ -692,14 +692,14 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.AccessLog.Duration = time.Duration(0)
 	addr, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
 	if !ok {
-		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
+		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("can't get local address"))
 		return
 	}
 
 	// Get the local address from the connection
 	localAddr, ok := addr.(*net.TCPAddr)
 	if !ok {
-		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("Can't get local Address"))
+		prx.OnError(ctx, "ServeHTTP", ErrPanic, errors.New("can't get local address"))
 		return
 	}
 	ctx.AccessLog.ProxyIP = localAddr.String()

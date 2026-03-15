@@ -24,7 +24,7 @@ func (pA *proxyAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 
 	if conn == nil {
 		logging.Printf("ERROR", "proxyAuthRoundTripper: SessionID:%d Error getting connection info\n", ctx.SessionNo)
-		return nil, errors.New("Empty proxy conenction")
+		return nil, errors.New("empty proxy connection")
 	}
 	if err := req.WriteProxy(conn); err != nil {
 		logging.Printf("ERROR", "proxyAuthRoundTripper: SessionID:%d Error writing to proxy connection: %s %v\n", ctx.SessionNo, err)
@@ -126,9 +126,9 @@ func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *
 	}
 	orgResp.StatusCode = newResp.StatusCode
 	orgResp.Status = newResp.Status
-	for k, _ := range orgResp.Header {
+	for k, v := range orgResp.Header {
 		orgResp.Header.Del(k)
-		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Delete header %s\n", ctx.SessionNo, k)
+		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Delete header %s:%s\n", ctx.SessionNo, k, v)
 	}
 	for k, v := range newResp.Header {
 		for i := 0; i < len(v); i++ {

@@ -42,12 +42,12 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 
 	if ctx.Req == nil {
 		logging.Printf("ERROR", "PrxDial: SessionID:%d Received empty context request\n", ctx.SessionNo)
-		return nil, errors.New("Empty context request")
+		return nil, errors.New("empty context request")
 	}
 	// Only use PrxdDial for Connect method
 	if ctx.ConnectReq == nil && ctx.Req.Method != "CONNECT" {
 		logging.Printf("ERROR", "PrxDial: SessionID:%d Received empty connect request\n", ctx.SessionNo)
-		return nil, errors.New("Empty request to proxy")
+		return nil, errors.New("empty request to proxy")
 	}
 	if proxy != "" {
 		var req *http.Request

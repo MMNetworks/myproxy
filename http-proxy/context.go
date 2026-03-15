@@ -11,7 +11,6 @@ import (
 	//        "github.com/dutchcoders/go-clamd"
 	"errors"
 	"io"
-	"io/ioutil"
 	"myproxy/logging"
 	"myproxy/protocol"
 	"myproxy/readconfig"
@@ -238,7 +237,6 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 }
 
 type ftpLogWriter struct {
-	writer    io.Writer
 	bytes     *bytesCounter
 	sessionNo int64
 }
@@ -728,9 +726,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 					} else {
 						path := r.URL.Path
 						// Check if path starts with /
-						if strings.HasPrefix(path, "/") {
-							path = path[1:]
-						}
+						path = strings.TrimPrefix(path, "/")
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
 						logging.Printf("DEBUG", "doFtp: SessionID:%d FTP Directory Listing: ftp://%s/%s\n", ctx.SessionNo, host, path)
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Parent Directory: ftp://%s/%s\n", ctx.SessionNo, host, filepath.Dir(path))
@@ -797,7 +793,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		var bodyContentLength = int64(0)
 		body := buf.Bytes()
 		if body != nil {
-			bodyReadCloser = ioutil.NopCloser(bytes.NewBuffer(body))
+			bodyReadCloser = io.NopCloser(bytes.NewBuffer(body))
 			bodyContentLength = int64(len(body))
 		}
 		resp := &http.Response{
@@ -1075,7 +1071,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 							}
 						}
 					}
-					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
+					if strings.Contains(protocol, "Upgrade") && strings.Contains(description, "websocket") {
 						logging.Printf("INFO", "doConnect: SessionID:%d Client requested websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
 						ctx.WebsocketState.Websocket = true
 					} else {
@@ -1083,7 +1079,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					if infected && readconfig.Config.Clamd.Block {
 						ctx.AccessLog.Status = "403 Virus found"
-						panic(errors.New("Virus found"))
+						panic(errors.New("virus found"))
 					}
 				}
 				FirstPacket = false
@@ -1140,7 +1136,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					if infected && readconfig.Config.Clamd.Block {
 						ctx.AccessLog.Status = "403 Virus found"
-						panic(errors.New("Virus found"))
+						panic(errors.New("virus found"))
 					}
 				}
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
@@ -1235,7 +1231,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 							}
 						}
 					}
-					if strings.Index(protocol, "Upgrade") >= 0 && strings.Index(description, "websocket") >= 0 {
+					if strings.Contains(protocol, "Upgrade") && strings.Contains(description, "websocket") {
 						logging.Printf("INFO", "doConnect: SessionID:%d Server accepted websocket upgrade: %s %s\n", ctx.SessionNo, protocol, description)
 						ctx.WebsocketState.Websocket = true
 					} else {
@@ -1243,7 +1239,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					if infected && readconfig.Config.Clamd.Block {
 						ctx.AccessLog.Status = "403 Virus found"
-						panic(errors.New("Virus found"))
+						panic(errors.New("virus found"))
 					}
 				}
 
@@ -1300,7 +1296,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 
 					if infected && readconfig.Config.Clamd.Block {
 						ctx.AccessLog.Status = "403 Virus found"
-						panic(errors.New("Virus found"))
+						panic(errors.New("virus found"))
 					}
 				}
 				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
@@ -1400,7 +1396,6 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 
 func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
-	const maxPayloadLength int = 16 * 65535
 
 	if ctx.WebsocketState.Websocket {
 		// Not anymore HTTP Request / Response
@@ -1459,7 +1454,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 					logging.Printf("INFO", "doMitm: SessionID:%d Request has virus: %s\n", ctx.SessionNo, name)
 					if readconfig.Config.Clamd.Block {
 						ctx.AccessLog.Status = "403 Virus found"
-						panic(errors.New("Virus found"))
+						panic(errors.New("virus found"))
 					}
 				}
 
@@ -1543,7 +1538,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 					logging.Printf("INFO", "doMitm: SessionID:%d Response has virus: %s\n", ctx.SessionNo, name)
 					if readconfig.Config.Clamd.Block {
 						ctx.AccessLog.Status = "403 Virus found"
-						panic(errors.New("Virus found"))
+						panic(errors.New("virus found"))
 					}
 				}
 

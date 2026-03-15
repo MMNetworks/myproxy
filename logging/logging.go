@@ -659,9 +659,9 @@ func LogProcessor(readConfig ReadConfig) {
 				if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(lStruct.filename) == "EVENTLOG" {
 					_systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
 				} else {
-					if strings.ToUpper(lStruct.filename) == strings.ToUpper(current.logFilename) {
+					if strings.EqualFold(lStruct.filename, current.logFilename) {
 						_osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
-					} else if strings.ToUpper(lStruct.filename) == strings.ToUpper(current.accessLog) {
+					} else if strings.EqualFold(lStruct.filename, current.accessLog) {
 						_osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
 					} else {
 						_osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")

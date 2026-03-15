@@ -136,7 +136,7 @@ func acceptWireshark(listener net.Listener) {
 		status.mu.Lock()
 		if status.active {
 			status.mu.Unlock()
-			_ = <-notify
+			<-notify
 			logging.Printf("INFO", "AcceptWireshark: SessionID:%d Connection from %s lost\n", 0, remoteAddr)
 			status.mu.Lock()
 			status.active = false
@@ -162,16 +162,17 @@ func acceptWireshark(listener net.Listener) {
 		}
 		readconfig.Config.Wireshark.Mu.Lock()
 		defer readconfig.Config.Wireshark.Mu.Unlock()
+		reCidr := regexp.MustCompile(`^[ ]*$`)
 		for _, rule := range readconfig.Config.Wireshark.Rules {
 			cidrStr := rule.IP
 			// IncExc string format (!)subnet
 			logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Check against IncExc Subnet %s\n", 0, cidrStr)
-			isEmpty, _ := regexp.MatchString("^[ ]*$", cidrStr)
+			isEmpty := reCidr.MatchString(cidrStr)
 			if isEmpty {
 				continue
 			}
 			isNeg := strings.Index(cidrStr, "!") == 0
-			hasSlash := strings.Index(cidrStr, "/") > -1
+			hasSlash := strings.Contains(cidrStr, "/")
 			if isNeg {
 				cidrStr = cidrStr[1:]
 			}
@@ -335,7 +336,7 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 	ipAddr := net.ParseIP(srcIP)
 	if ipAddr == nil {
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
-		return errors.New("Not an IP")
+		return errors.New("not an ip")
 	}
 
 	start := 0
@@ -450,7 +451,7 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 				Length:        len(buf.Bytes()),
 			}, buf.Bytes())
 		} else {
-			err = errors.New("Empty pcapWriter pointer")
+			err = errors.New("empty pcapWriter pointer")
 		}
 		if err != nil {
 			logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not write packet: %v\n", sessionNo, err)
@@ -473,7 +474,6 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	}
 
 	tcpSeq := tcpState.tcpClientRand
-	tcpAck := tcpState.tcpServerRand
 
 	logging.Printf("DEBUG", "WriteSynAck: SessionID:%d Created SYN/SYN-ACK/ACK for IP packet Identifier %d\n", sessionNo, uint16(sessionNo&0xFFFF))
 
@@ -482,7 +482,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	ipAddr := net.ParseIP(srcIP)
 	if ipAddr == nil {
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
-		return errors.New("Not an IP")
+		return errors.New("not an ip")
 	}
 
 	// Create TCP layer
@@ -560,7 +560,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			Length:        len(buf.Bytes()),
 		}, buf.Bytes())
 	} else {
-		err = errors.New("Empty pcapWriter pointer")
+		err = errors.New("empty pcapWriter pointer")
 	}
 	if err != nil {
 		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write SYN packet: %v\n", sessionNo, err)
@@ -571,11 +571,11 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	ipAddr = net.ParseIP(srcIP)
 	if ipAddr == nil {
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
-		return errors.New("Not an IP")
+		return errors.New("not an ip")
 	}
 
 	tcpSeq = tcpState.tcpServerRand
-	tcpAck = tcpState.tcpClientRand + 1
+	tcpAck := tcpState.tcpClientRand + 1
 
 	// Create TCP layer
 	tcp = layers.TCP{
@@ -651,7 +651,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			Length:        len(buf.Bytes()),
 		}, buf.Bytes())
 	} else {
-		err = errors.New("Empty pcapWriter pointer")
+		err = errors.New("empty pcapWriter pointer")
 	}
 	if err != nil {
 		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write SYN-ACK packet: %v\n", sessionNo, err)
@@ -662,7 +662,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 	ipAddr = net.ParseIP(srcIP)
 	if ipAddr == nil {
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Source address %s is not an IP\n", sessionNo, srcIP)
-		return errors.New("Not an IP")
+		return errors.New("not an ip")
 	}
 
 	tcpSeq = tcpState.tcpClientRand + 1
@@ -742,7 +742,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			Length:        len(buf.Bytes()),
 		}, buf.Bytes())
 	} else {
-		err = errors.New("Empty pcapWriter pointer")
+		err = errors.New("empty pcapWriter pointer")
 	}
 	if err != nil {
 		logging.Printf("ERROR", "WriteSynAck: SessionID:%d Could not write ACK packet: %v\n", sessionNo, err)

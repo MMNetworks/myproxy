@@ -274,12 +274,12 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 	if configOut.PAC.Type != "FILE" && configOut.PAC.Type != "URL" && configOut.PAC.Type != "" {
 		logging.Printf("ERROR", "ReadConfig: Reading PAC type field: %s\n", configOut.PAC.Type)
 		logging.Printf("ERROR", "ReadConfig: Only FILE and URL supported\n")
-		return nil, errors.New("Wrong PAC type")
+		return nil, errors.New("wrong pac type")
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File == "" {
 		logging.Printf("ERROR", "ReadConfig: Reading PAC type FILE: %s\n", configOut.PAC.File)
 		logging.Printf("ERROR", "ReadConfig: FILE needs a filename\n")
-		return nil, errors.New("PAC File name missing")
+		return nil, errors.New("pac file name missing")
 	}
 	if configOut.PAC.Type == "FILE" && configOut.PAC.File != "" {
 		pacFilepath, err := filepath.Abs(configOut.PAC.File)
@@ -304,7 +304,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 		if v != "ntlm" && v != "negotiate" && v != "basic" {
 			logging.Printf("ERROR", "ReadConfig: Reading authentication field: %d:%s\n", i+1, v)
 			logging.Printf("ERROR", "ReadConfig: Only ntln,negotiate and basic are supported\n")
-			return nil, errors.New("Invalid Authentication type")
+			return nil, errors.New("invalid authentication type")
 		}
 	}
 	if osType != "windows" {
@@ -423,7 +423,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 			configOut.MITM.Keyfile == "" && configOut.MITM.Certfile != "",
 			configOut.MITM.Key != "" && configOut.MITM.Keyfile != "",
 			configOut.MITM.Cert != "" && configOut.MITM.Certfile != "":
-			return nil, errors.New("Invalid MITM certificate configuration")
+			return nil, errors.New("invalid mitm certificate configuration")
 		default:
 		}
 		if configOut.MITM.Keyfile != "" {
@@ -513,6 +513,10 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 		decoder.KnownFields(true)
 		var fileRules []WiresharkRule
 		err = decoder.Decode(&fileRules)
+		if err != nil {
+			logging.Printf("ERROR", "ReadConfig: Decoding file %s: %v\n", filePath, err)
+			return nil, err
+		}
 
 		// Save initial rules
 		configOut.Wireshark.InitialRules = make([]WiresharkRule, len(configOut.Wireshark.Rules))
@@ -559,7 +563,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 	}
 	if !*configOut.Connection.IPv6 && !*configOut.Connection.IPv4 {
 		logging.Printf("ERROR", "ReadConfig: Require IOV6 and/or IPV4 support\n")
-		return nil, errors.New("Require IPv6 or IPv4")
+		return nil, errors.New("require ipv6 or ipv4")
 	}
 	if len(configOut.Connection.DNSServers) > 0 {
 		for i := 0; i < len(configOut.Connection.DNSServers); i++ {
@@ -643,7 +647,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 	prefix := "tls:"
 	if strings.HasPrefix(configOut.Clamd.Connection, prefix) {
 		if configOut.Clamd.Certfile == "" || configOut.Clamd.Keyfile == "" {
-			return nil, errors.New("Missing Client Cert or Key to authenticate")
+			return nil, errors.New("missing client cert or key to authenticate")
 		}
 	}
 

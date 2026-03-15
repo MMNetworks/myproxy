@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const maxReadLength = 64 * 1024
-
 func c2s(conn net.Conn) string {
 	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
 }
@@ -102,7 +100,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 
 	if payloadLen > maxPayloadLength {
 		logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Websocket payload length > max length %d>%d\n", rType, sessionNo, payloadLen, maxPayloadLength)
-		return dataLen, errors.New("Payload too large")
+		return dataLen, errors.New("payload too large")
 	}
 
 	dataLen = offset

@@ -212,7 +212,7 @@ func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 	logging.Printf("DEBUG", "SetProxy: SessionID:%d %s\n", ctx.SessionNo, u.Redacted())
 
 	if readconfig.Config.PAC.Type != "" {
-		if time.Now().Sub(timeNext) >= 0 {
+		if time.Since(timeNext) >= 0 {
 			if readconfig.Config.PAC.Type == "URL" {
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Use PAC URL %s\n", ctx.SessionNo, readconfig.Config.PAC.URL)
 				var hclient http.Client
@@ -234,6 +234,10 @@ func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 					Transport: transport,
 				}
 				pResp, err := hclient.Head(readconfig.Config.PAC.URL)
+				if err != nil {
+					logging.Printf("ERROR", "SetProxy: SessionID:%d Could not read header: %v\n", ctx.SessionNo, err)
+					return upstreamProxy, err
+				}
 				for k, v := range pResp.Header {
 					logging.Printf("DEBUG", "SetProxy: SessionID:%d PAC server response header: %s=%s\n", ctx.SessionNo, k, v)
 

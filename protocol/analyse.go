@@ -98,7 +98,7 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 	} else {
 		logging.Printf("DEBUG", "analyseAsSSHPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
-	return "", errors.New("Not a SSH stream")
+	return "", errors.New("not a ssh stream")
 }
 
 // Request-Header includes Upgrade: websocket
@@ -121,7 +121,7 @@ func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
 	} else {
 		logging.Printf("DEBUG", "analyseAsUpgradePacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
 	}
-	return "", errors.New("Not an Upgrade")
+	return "", errors.New("not an upgrade")
 }
 
 // Request-Line   = Method SP Request-URI SP HTTP-Version
@@ -138,7 +138,7 @@ func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 	} else {
 		logging.Printf("DEBUG", "analyseAsHTTPPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
 	}
-	return "", errors.New("Not a HTTP stream")
+	return "", errors.New("not a http stream")
 }
 
 func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
@@ -346,7 +346,7 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 	return string(sniName), nil
 
 END:
-	return "", errors.New("Not a TLS stream")
+	return "", errors.New("not a tls stream")
 
 }
 
@@ -634,7 +634,7 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	return rString, nil
 
 END:
-	return "", errors.New("Not a TLS stream")
+	return "", errors.New("not a tls stream")
 
 }
 
@@ -651,7 +651,7 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	} else {
 		logging.Printf("DEBUG", "analyseAsFTPPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
 	}
-	return "", errors.New("Not a FTP stream")
+	return "", errors.New("not a ftp stream")
 }
 
 // Response-Line   = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
@@ -674,7 +674,7 @@ func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, err
 	} else {
 		logging.Printf("DEBUG", "analyseAsUpgradePacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
 	}
-	return "", errors.New("Not an Upgrade")
+	return "", errors.New("not an upgrade")
 }
 
 func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) {
@@ -690,5 +690,5 @@ func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	} else {
 		logging.Printf("DEBUG", "analyseAsSSHPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
-	return "", errors.New("Not a SSH stream")
+	return "", errors.New("not a ssh stream")
 }

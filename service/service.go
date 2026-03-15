@@ -6,5 +6,4 @@ func Service(args []string) {
 
 	runProxy(args[:])
 
-	return
 }
