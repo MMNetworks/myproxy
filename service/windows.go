@@ -113,6 +113,7 @@ func Service(args []string) {
 	default:
 		log.Printf("INFO: Service: run interactive\n")
 		runProxy(args[:])
+		time.Sleep(2 * time.Second)
 	}
 	if err != nil {
 		log.Printf("ERROR: Service: failed to %s %s: %v\n", cmd, svcName, err)
@@ -304,7 +305,7 @@ func (m *myproxyService) Execute(args []string, r <-chan svc.ChangeRequest, chan
 		logging.Printf("DEBUG", "Execute: No service args\n")
 		var largs []string
 		largs = []string{"myproxy"}
-		runProxy(largs)
+		go runProxy(largs)
 		logging.Printf("DEBUG", "Execute: Run proxy\n")
 	}
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
