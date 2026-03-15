@@ -73,7 +73,7 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 		OverwriteResponse(ctx, resp, ntlmResp)
 		return err
 	}
-	logging.Printf("DBEUG", "DoNTLMProxyAuth: SessionID:%d NTLM authorization: '%s'\n", ctx.SessionNo, base64.StdEncoding.EncodeToString(authenticateMessage))
+	logging.Printf("DEBUG", "DoNTLMProxyAuth: SessionID:%d NTLM authorization: '%s'\n", ctx.SessionNo, base64.StdEncoding.EncodeToString(authenticateMessage))
 	req.Header.Del("Proxy-Authorization")
 	req.Header.Add("Proxy-Authorization", fmt.Sprintf("%s %s", auth, base64.StdEncoding.EncodeToString(authenticateMessage)))
 	ntlmResp, err = ctx.Rt.RoundTrip(req)
