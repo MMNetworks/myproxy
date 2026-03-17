@@ -103,13 +103,13 @@ func Service(args []string) {
 	case "start":
 		err = startService(svcName, configFilename)
 	case "stop":
-		err, state = controlService(svcName, svc.Stop, svc.Stopped)
+		state, err = controlService(svcName, svc.Stop, svc.Stopped)
 	case "pause":
-		err, state = controlService(svcName, svc.Pause, svc.Paused)
+		state, err = controlService(svcName, svc.Pause, svc.Paused)
 	case "continue":
-		err, state = controlService(svcName, svc.Continue, svc.Running)
+		state, err = controlService(svcName, svc.Continue, svc.Running)
 	case "status":
-		err, state = controlService(svcName, svc.Interrogate, 0)
+		state, err = controlService(svcName, svc.Interrogate, 0)
 	default:
 		log.Printf("INFO: Service: run interactive\n")
 		runProxy(args[:])
@@ -120,7 +120,6 @@ func Service(args []string) {
 	} else {
 		log.Printf("INFO: Service: status %s\n", stateName(state))
 	}
-	return
 }
 
 func exePath() (string, error) {
@@ -140,6 +139,7 @@ func exePath() (string, error) {
 			}
 			err = fmt.Errorf("%s is directory", pe)
 		}
+		return "", err
 	}
 	fi, err := os.Stat(p)
 	if err == nil {
@@ -192,6 +192,9 @@ func updateService(name, config string) error {
 		return fmt.Errorf("service %s is not installed", name)
 	}
 	serviceConfig, err := s.Config()
+	if err != nil {
+		return err
+	}
 	switch {
 	case config == "autostart":
 		serviceConfig.StartType = mgr.StartAutomatic
@@ -234,46 +237,46 @@ func startService(name string, configFile string) error {
 	defer m.Disconnect()
 	s, err := m.OpenService(name)
 	if err != nil {
-		return fmt.Errorf("Could not access service: %v", err)
+		return fmt.Errorf("could not access service: %v", err)
 	}
 	defer s.Close()
 	logging.Printf("INFO", "startService: Starting service %s with configuration file: %s\n", name, configFile)
 	err = s.Start("-c", configFile)
 	if err != nil {
-		return fmt.Errorf("Could not start service: %v", err)
+		return fmt.Errorf("could not start service: %v", err)
 	}
 	logging.Printf("INFO", "startService: Started service %s\n", name)
 	return nil
 }
 
-func controlService(name string, c svc.Cmd, to svc.State) (error, svc.State) {
+func controlService(name string, c svc.Cmd, to svc.State) (svc.State, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	m, err := mgr.Connect()
 	if err != nil {
-		return err, 0
+		return 0, err
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(name)
 	if err != nil {
-		return fmt.Errorf("Could not access service: %v", err), 0
+		return 0, fmt.Errorf("could not access service: %v", err)
 	}
 	defer s.Close()
 	status, err := s.Control(c)
 	if err != nil {
-		return fmt.Errorf("Could not send control=%d: %v", c, err), 0
+		return 0, fmt.Errorf("could not send control=%d: %v", c, err)
 	}
 	timeout := time.Now().Add(10 * time.Second)
 	for c != svc.Interrogate && status.State != to {
 		if timeout.Before(time.Now()) {
-			return fmt.Errorf("Timeout waiting for service to go to state=%d", to), 0
+			return 0, fmt.Errorf("timeout waiting for service to go to state=%d", to)
 		}
 		time.Sleep(300 * time.Millisecond)
 		status, err = s.Query()
 		if err != nil {
-			return fmt.Errorf("Could not retrieve service status: %v", err), 0
+			return 0, fmt.Errorf("could not retrieve service status: %v", err)
 		}
 	}
-	return err, status.State
+	return status.State, err
 }
 
 func runService(name string) {
@@ -303,28 +306,24 @@ func (m *myproxyService) Execute(args []string, r <-chan svc.ChangeRequest, chan
 		logging.Printf("DEBUG", "Execute: Run proxy\n")
 	} else {
 		logging.Printf("DEBUG", "Execute: No service args\n")
-		var largs []string
-		largs = []string{"myproxy"}
+		var largs = []string{"myproxy"}
 		go runProxy(largs)
 		logging.Printf("DEBUG", "Execute: Run proxy\n")
 	}
 	changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
 loop:
-	for {
-		select {
-		case c := <-r:
-			switch c.Cmd {
-			case svc.Interrogate:
-				changes <- c.CurrentStatus
-			case svc.Stop, svc.Shutdown:
-				break loop
-			case svc.Pause:
-				changes <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
-			case svc.Continue:
-				changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
-			default:
-				logging.Printf("ERROR", "Execute: Unexpected control request #%d", c)
-			}
+	for c := range r {
+		switch c.Cmd {
+		case svc.Interrogate:
+			changes <- c.CurrentStatus
+		case svc.Stop, svc.Shutdown:
+			break loop
+		case svc.Pause:
+			changes <- svc.Status{State: svc.Paused, Accepts: cmdsAccepted}
+		case svc.Continue:
+			changes <- svc.Status{State: svc.Running, Accepts: cmdsAccepted}
+		default:
+			logging.Printf("ERROR", "Execute: Unexpected control request #%d", c)
 		}
 	}
 	changes <- svc.Status{State: svc.StopPending}
