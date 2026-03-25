@@ -4,7 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"math/big"
@@ -147,7 +147,7 @@ func hashSorted(lst []string) []byte {
 	c := make([]string, len(lst))
 	copy(c, lst)
 	sort.Strings(c)
-	h := sha1.New()
+	h := sha256.New()
 	for _, s := range c {
 		h.Write([]byte(s + ","))
 	}

@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -41,7 +40,10 @@ func Service(args []string) {
 	CommandLine.StringVar(&action, "a", "none", "Windows service action to run. Options are install, start, stop, pause, continue, status and remove")
 	CommandLine.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename.")
 
-	CommandLine.Parse(args[1:])
+	err = CommandLine.Parse(args[1:])
+	if err != nil {
+		log.Printf("ERROR: runProxy: error parsing arguments: %v\n", err)
+	}
 
 	cF, err = filepath.Abs(configFilename)
 	if err != nil {
@@ -90,7 +92,9 @@ func Service(args []string) {
 		fmt.Printf("\n")
 		serviceUser := scanner.Text()
 		fmt.Printf("Enter Password for %s: ", serviceUser)
-		bytePassword, err = term.ReadPassword(int(syscall.Stdin))
+		// #nosec G115 (CWE-190) -- save
+		fd := int(os.Stdin.Fd())
+		bytePassword, err = term.ReadPassword(fd)
 		if err != nil {
 			logging.Printf("ERROR", "Service: Service user password read error: %v\n", err)
 			fmt.Printf("ERROR: Service: Service user password read error: %v\n", err)
@@ -124,7 +128,7 @@ func Service(args []string) {
 
 func exePath() (string, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	prog := os.Args[0]
+	prog := filepath.Clean(os.Args[0])
 	p, err := filepath.Abs(prog)
 	if err != nil {
 		return "", err
@@ -162,10 +166,10 @@ func installService(name, desc string, username string, password string, configF
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(name)
 	if err == nil {
-		s.Close()
+		_ = s.Close()
 		return fmt.Errorf("service %s already exists", name)
 	}
 	serviceConfig.DisplayName = desc
@@ -176,7 +180,7 @@ func installService(name, desc string, username string, password string, configF
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	return nil
 }
 
@@ -186,7 +190,7 @@ func updateService(name, config string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(name)
 	if err != nil {
 		return fmt.Errorf("service %s is not installed", name)
@@ -205,7 +209,7 @@ func updateService(name, config string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	return nil
 }
 
@@ -215,12 +219,12 @@ func removeService(name string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(name)
 	if err != nil {
 		return fmt.Errorf("service %s is not installed", name)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	err = s.Delete()
 	if err != nil {
 		return err
@@ -234,12 +238,12 @@ func startService(name string, configFile string) error {
 	if err != nil {
 		return err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(name)
 	if err != nil {
 		return fmt.Errorf("could not access service: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	logging.Printf("INFO", "startService: Starting service %s with configuration file: %s\n", name, configFile)
 	err = s.Start("-c", configFile)
 	if err != nil {
@@ -255,12 +259,12 @@ func controlService(name string, c svc.Cmd, to svc.State) (svc.State, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer m.Disconnect()
+	defer func() { _ = m.Disconnect() }()
 	s, err := m.OpenService(name)
 	if err != nil {
 		return 0, fmt.Errorf("could not access service: %v", err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	status, err := s.Control(c)
 	if err != nil {
 		return 0, fmt.Errorf("could not send control=%d: %v", c, err)

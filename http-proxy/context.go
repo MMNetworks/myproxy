@@ -171,15 +171,16 @@ func (ctx *Context) doAccept(w http.ResponseWriter, r *http.Request) bool {
 	ctx.Req = r
 	if !r.ProtoAtLeast(1, 0) || r.ProtoAtLeast(2, 0) {
 		if r.Body != nil {
-			defer r.Body.Close()
+			defer func() { _ = r.Body.Close() }()
 		}
-		logging.Printf("DEBUG", "doAccept: SessionID:%d Version: %s\n", ctx.SessionNo, r.Proto)
+		rP := CleanUntrustedString(ctx, "Proto", r.Proto)
+		logging.Printf("DEBUG", "doAccept: SessionID:%d Version: %s\n", ctx.SessionNo, rP)
 		ctx.doError("Accept", ErrNotSupportHTTPVer, nil)
 		return true
 	}
 	if ctx.Prx.OnAccept != nil && ctx.onAccept(w, r) {
 		if r.Body != nil {
-			defer r.Body.Close()
+			defer func() { _ = r.Body.Close() }()
 		}
 		return true
 	}
@@ -189,7 +190,8 @@ func (ctx *Context) doAccept(w http.ResponseWriter, r *http.Request) bool {
 func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 
-	if r.Method != "CONNECT" && !r.URL.IsAbs() {
+	rM := CleanUntrustedString(ctx, "Proto", r.Method)
+	if rM != "CONNECT" && !r.URL.IsAbs() {
 		return false
 	}
 	if ctx.Prx.OnAuth == nil {
@@ -200,7 +202,7 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 		prxAuthType = "Basic"
 	}
 	unauthorized := false
-	authParts := strings.SplitN(r.Header.Get("Proxy-Authorization"), " ", 2)
+	authParts := strings.SplitN(CleanUntrustedString(ctx, "Proxy-Authorization", r.Header.Get("Proxy-Authorization")), " ", 2)
 	if len(authParts) >= 2 {
 		authType := authParts[0]
 		authData := authParts[1]
@@ -221,14 +223,14 @@ func (ctx *Context) doAuth(w http.ResponseWriter, r *http.Request) bool {
 		}
 	}
 	if r.Body != nil {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 	}
 	respCode := 407
 	respBody := "Proxy Authentication Required"
 	if unauthorized {
 		respBody += " [Unauthorized]"
 	}
-	err := ServeInMemory(w, respCode, map[string][]string{"Proxy-Authenticate": {prxAuthType}},
+	err := ServeInMemory(ctx, w, respCode, map[string][]string{"Proxy-Authenticate": {prxAuthType}},
 		[]byte(respBody))
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Auth", ErrResponseWrite, err)
@@ -295,7 +297,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	proxy := ctx.UpstreamProxy
 
 	if r.Body != nil {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 	}
 
 	if proxy == "" {
@@ -303,13 +305,14 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		return true, nil
 	}
 
-	host := r.URL.Host
+	host := CleanUntrustedString(ctx, "URL Host", r.URL.Host)
 	if !HasPort.MatchString(host) {
 		host += ":21"
 	}
 
 	reqSend := r
-	if r.URL.Scheme == "ftp" || r.URL.Scheme == "ftps" {
+	rS := CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
+	if rS == "ftp" || rS == "ftps" {
 		reqSend = new(http.Request)
 		*reqSend = *r
 		reqSend.URL = new(url.URL)
@@ -352,7 +355,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		if err != nil {
 			ctx.doError("Ftp", ErrRemoteConnect, err)
 			if resp != nil {
-				ctx.AccessLog.Status = resp.Status
+				ctx.AccessLog.Status = CleanUntrustedString(ctx, "Status", resp.Status)
 			} else {
 				ctx.AccessLog.Status = "404 " + err.Error()
 			}
@@ -369,23 +372,29 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	bodySize := r.ContentLength
 
 	headerSize := 0
-	for name, values := range r.Header {
-		for _, value := range values {
-			headerSize += len(name) + len(value) + len(": ") + len("\r\n")
+	for k, v := range r.Header {
+		tK := CleanUntrustedString(ctx, "Header key", k)
+		for _, value := range v {
+			tV := CleanUntrustedString(ctx, "Header Value", value)
+			headerSize += len(tK) + len(tV) + len(": ") + len("\r\n")
 		}
 	}
 	// it seems host header information is moved to different entries in structure
-	if r.Host == "" {
-		headerSize += len("Host: ") + len(r.URL.Host) + len("\r\n")
-		if !HasPort.MatchString(r.URL.Host) {
+
+	tH := CleanUntrustedString(ctx, "Host", r.Host)
+	tU := CleanUntrustedString(ctx, "URL Host", r.URL.Host)
+	if tH == "" {
+		headerSize += len("Host: ") + len(tU) + len("\r\n")
+		if !HasPort.MatchString(tU) {
 			headerSize += 3
 		}
 	} else {
-		headerSize += len("Host: ") + len(r.Host) + len("\r\n")
-		if !HasPort.MatchString(r.Host) {
+		headerSize += len("Host: ") + len(tH) + len("\r\n")
+		if !HasPort.MatchString(tH) {
 			headerSize += 3
 		}
 	}
+
 	// Adding the size of the initial request line and the final empty line
 	requestLineSize := len(r.Method) + 1 + len(r.URL.String()) + len(" HTTP/1.1\r\n")
 	finalEmptyLineSize := len("\r\n")
@@ -393,7 +402,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	totalSize := requestLineSize + headerSize + int(bodySize) + finalEmptyLineSize
 	ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(totalSize)
 
-	ctx.AccessLog.Status = resp.Status
+	ctx.AccessLog.Status = CleanUntrustedString(ctx, "Status", resp.Status)
 	resp.Request = r
 	resp.TransferEncoding = nil
 
@@ -427,7 +436,7 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		}
 	}
 
-	err = ServeResponse(w, resp)
+	err = ServeResponse(ctx, w, resp)
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Request", ErrResponseWrite, err)
 		ctx.AccessLog.Status = "500 " + err.Error()
@@ -435,11 +444,13 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		bodySize := resp.ContentLength
 		// Calculate the size of the headers
 		headerSize := 0
-		for name, values := range resp.Header {
-			for _, value := range values {
+		for k, v := range resp.Header {
+			tK := CleanUntrustedString(ctx, "Header key", k)
+			for _, value := range v {
+				tV := CleanUntrustedString(ctx, "Header Value", value)
 				// Via header added by this proxy to client
-				if strings.ToUpper(name) != "VIA" {
-					headerSize += len(name) + len(value) + len(": ") + len("\r\n")
+				if strings.ToUpper(tK) != "VIA" {
+					headerSize += len(tK) + len(tV) + len(": ") + len("\r\n")
 				}
 			}
 		}
@@ -471,10 +482,11 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	respHeader := http.Header{}
 
 	if r.Body != nil {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 	}
 
-	if r.URL.Scheme != "ftp" && r.URL.Scheme != "ftps" {
+	tS := CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
+	if tS != "ftp" && tS != "ftps" {
 		return false, nil
 	}
 
@@ -485,21 +497,21 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 
 	}
 
-	parsedURL, err := url.Parse(r.URL.String())
+	parsedURL, err := url.Parse(CleanUntrustedString(ctx, "URL String", r.URL.String()))
 	if err != nil {
 		logging.Printf("ERROR", "doFtp: SessionID:%d Failed to parse URL: %v\n", ctx.SessionNo, err)
 		return false, err
 	}
 	port := parsedURL.Port()
-	host := r.URL.Host
-	method := r.Method
+	host := CleanUntrustedString(ctx, "URL Host", r.URL.Host)
+	method := CleanUntrustedString(ctx, "Method", r.Method)
 	user := readconfig.Config.FTP.Username
 	pass := readconfig.Config.FTP.Password
 	if r.URL.User != nil {
-		user = r.URL.User.Username()
+		user = CleanUntrustedString(ctx, "URL Username", r.URL.User.Username())
 		upass, set := r.URL.User.Password()
 		if set {
-			pass = upass
+			pass = CleanUntrustedString(ctx, "URL Password", upass)
 		}
 	}
 
@@ -508,7 +520,8 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 	logging.Printf("DEBUG", "doFtp: SessionID:%d Method %s\n", ctx.SessionNo, method)
 
 	reqSend := r
-	if r.URL.Scheme == "ftp" || r.URL.Scheme == "ftps" {
+	tS = CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
+	if tS == "ftp" || tS == "ftps" {
 		reqSend = new(http.Request)
 		*reqSend = *r
 		reqSend.URL = new(url.URL)
@@ -589,7 +602,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return b, err
 		}
-		defer ftpClient.Close()
+		defer func() { _ = ftpClient.Close() }()
 
 		// Use data conection creation to find remote IP
 		rawConn, err := ftpClient.OpenRawConn()
@@ -639,12 +652,13 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 			return true, err
 		}
-		dataConn.Close()
+		_ = dataConn.Close()
 		remoteAddr := dataConn.RemoteAddr().(*net.TCPAddr)
 		ctx.AccessLog.DestinationIP = remoteAddr.IP.String() + ":" + port
 
 		if strings.ToUpper(method) == "PUT" {
-			logging.Printf("DEBUG", "doFtp: SessionID:%d Storing File: %s\n", ctx.SessionNo, r.URL.Path)
+			tP := CleanUntrustedString(ctx, "URL Path", r.URL.Path)
+			logging.Printf("DEBUG", "doFtp: SessionID:%d Storing File: %s\n", ctx.SessionNo, tP)
 			ioBuf, err := io.ReadAll(r.Body)
 			if err != nil {
 				logging.Printf("ERROR", "doFtp: SessionID:%d Could not receive File %v\n", ctx.SessionNo, err)
@@ -662,7 +676,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 				return true, err
 			}
-			err = ftpClient.Store(r.URL.Path, bytes.NewBuffer(ioBuf))
+			err = ftpClient.Store(tP, bytes.NewBuffer(ioBuf))
 			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
 			if err != nil {
 				b := true
@@ -700,11 +714,12 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			}
 		} else {
 			logging.Printf("DEBUG", "doFtp: SessionID:%d Retrieving File/Dir Listing: \n", ctx.SessionNo)
-			err = ftpClient.Retrieve(r.URL.Path, buf)
+			path := CleanUntrustedString(ctx, "URL Path", r.URL.Path)
+			err = ftpClient.Retrieve(path, buf)
 			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(len(pass)-6)
 			if err != nil {
 				if err.(goftp.Error).Code() > 499 && err.(goftp.Error).Code() < 600 {
-					files, err := ftpClient.ReadDir(r.URL.Path)
+					files, err := ftpClient.ReadDir(path)
 					if err != nil {
 						b := true
 						ctx.doError("Ftp", ErrRemoteConnect, err)
@@ -724,7 +739,6 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 						return b, err
 					} else {
-						path := r.URL.Path
 						// Check if path starts with /
 						path = strings.TrimPrefix(path, "/")
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
@@ -836,7 +850,7 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		}
 	}
 
-	err = ServeInMemory(w, respCode, respHeader, buf.Bytes())
+	err = ServeInMemory(ctx, w, respCode, respHeader, buf.Bytes())
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("doFtp", ErrResponseWrite, err)
 	}
@@ -856,7 +870,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 
 	b = true
-	if r.Method != "CONNECT" {
+	tM := CleanUntrustedString(ctx, "Method", r.Method)
+	if tM != "CONNECT" {
 		b = false
 		return
 	}
@@ -864,7 +879,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	hij, ok := w.(http.Hijacker)
 	if !ok {
 		if r.Body != nil {
-			defer r.Body.Close()
+			defer func() { _ = r.Body.Close() }()
 		}
 		ctx.doError("Connect", ErrNotSupportHijacking, nil)
 		ctx.AccessLog.Status = "500 internal error ErrNotSupportHijacking"
@@ -880,7 +895,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	conn, _, err := hij.Hijack()
 	if err != nil {
 		if r.Body != nil {
-			defer r.Body.Close()
+			defer func() { _ = r.Body.Close() }()
 		}
 		ctx.doError("Connect", ErrNotSupportHijacking, err)
 		ctx.AccessLog.Status = "500 internal error ErrNotSupportHijacking"
@@ -899,7 +914,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	ctx.AccessLog.UpstreamProxyIP = ""
 	ctx.ConnectReq = r
 	ctx.ConnectAction = ConnectProxy
-	host := r.URL.Host
+	host := CleanUntrustedString(ctx, "URL Host", r.URL.Host)
 	if !HasPort.MatchString(host) {
 		host += ":443"
 	}
@@ -917,7 +932,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	logging.Printf("DEBUG", "doConnect: SessionID:%d New Connection to %s\n", ctx.SessionNo, host)
 
 	reqSend := r
-	if r.URL.Scheme == "https" || r.URL.Scheme == "" {
+	tS := CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
+	if tS == "https" || tS == "" {
 		reqSend = new(http.Request)
 		*reqSend = *r
 		reqSend.URL = new(url.URL)
@@ -940,8 +956,11 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 	case ConnectProxy:
 		conn, err := ctx.Dial(ctx, "tcp", host)
 		if err != nil {
-			hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
-			hijConn.Close()
+			_, err2 := hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			if err2 != nil {
+				logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Client %v\n", ctx.SessionNo, err2)
+			}
+			_ = hijConn.Close()
 			ctx.doError("Connect", ErrRemoteConnect, err)
 			ctx.AccessLog.Status = "500 " + err.Error()
 			ctx.AccessLog.Endtime = time.Now()
@@ -961,9 +980,12 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 		remoteConn := conn.(*net.TCPConn)
 		if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-			hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
-			hijConn.Close()
-			remoteConn.Close()
+			_, err2 := hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			if err2 != nil {
+				logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Client %v\n", ctx.SessionNo, err2)
+			}
+			_ = hijConn.Close()
+			_ = remoteConn.Close()
 			if !isConnectionClosed(err) {
 				ctx.doError("Connect", ErrResponseWrite, err)
 				ctx.AccessLog.Status = "500 " + err.Error()
@@ -1008,8 +1030,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				if !ok {
 					return
 				}
-				hijConn.Close()
-				remoteConn.Close()
+				_ = hijConn.Close()
+				_ = remoteConn.Close()
 				if !isConnectionClosed(err) {
 					// ctx.doError("Connect", ErrRequestRead, err)
 					if strings.Contains(strings.ToLower(err.Error()), "virus") {
@@ -1098,7 +1120,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					n, err = protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
 					if ctx.ReadTimeout > 0 {
-						hijConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+						err := hijConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+						if err != nil {
+							logging.Printf("DEBUG", "doConnect: SessionID:%d Could not set read deadline: %v\n", ctx.SessionNo, err)
+						}
 					}
 					n, err = hijConn.Read(mbuf)
 				}
@@ -1141,9 +1166,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				}
 				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + int64(n)
 			}
-			remoteConn.CloseWrite()
+			_ = remoteConn.CloseWrite()
 			if c, ok := hijConn.(*net.TCPConn); ok {
-				c.CloseRead()
+				_ = c.CloseRead()
 			}
 		}()
 		go func() {
@@ -1154,8 +1179,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				if !ok {
 					return
 				}
-				hijConn.Close()
-				remoteConn.Close()
+				_ = hijConn.Close()
+				_ = remoteConn.Close()
 				logging.Printf("DEBUG", "doConnect: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					//ctx.doError("Connect", ErrResponseWrite, err)
@@ -1257,7 +1282,10 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					n, err = protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
 					if ctx.ReadTimeout > 0 {
-						remoteConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+						err := remoteConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+						if err != nil {
+							logging.Printf("DEBUG", "doConnect: SessionID:%d Could not set read deadline: %v\n", ctx.SessionNo, err)
+						}
 					}
 					n, err = remoteConn.Read(mbuf)
 				}
@@ -1304,17 +1332,17 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 				//	break
 				//}
 			}
-			remoteConn.CloseRead()
+			_ = remoteConn.CloseRead()
 			if c, ok := hijConn.(*net.TCPConn); ok {
-				c.CloseWrite()
+				_ = c.CloseWrite()
 			}
 		}()
 		wg.Wait()
 
 		logging.Printf("INFO", "doConnect: SessionID:%d Websocket identified in traffic: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
 		ctx.WebsocketState.Websocket = false
-		hijConn.Close()
-		remoteConn.Close()
+		_ = hijConn.Close()
+		_ = remoteConn.Close()
 		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
@@ -1326,7 +1354,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		tlsConfig := &tls.Config{}
 		cert := ctx.Prx.signer.SignHost(host)
 		if cert == nil {
-			hijConn.Close()
+			_ = hijConn.Close()
 			ctx.doError("Connect", ErrTLSSignHost, err)
 			ctx.AccessLog.Status = "500 " + err.Error()
 			ctx.AccessLog.Endtime = time.Now()
@@ -1340,7 +1368,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 		tlsConfig.Certificates = append(tlsConfig.Certificates, *cert)
 		if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-			hijConn.Close()
+			_ = hijConn.Close()
 			if !isConnectionClosed(err) {
 				ctx.doError("Connect", ErrResponseWrite, err)
 				ctx.AccessLog.Status = "500 " + err.Error()
@@ -1362,7 +1390,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 		ctx.hijTLSConn = tls.Server(hijConn, tlsConfig)
 		if err := ctx.hijTLSConn.Handshake(); err != nil {
-			ctx.hijTLSConn.Close()
+			_ = ctx.hijTLSConn.Close()
 			if !isConnectionClosed(err) {
 				ctx.doError("Connect", ErrTLSHandshake, err)
 				ctx.AccessLog.Status = "500 " + err.Error()
@@ -1377,12 +1405,15 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			return
 		}
 		if ctx.ReadTimeout > 0 {
-			ctx.hijTLSConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+			err := ctx.hijTLSConn.SetReadDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+			if err != nil {
+				logging.Printf("DEBUG", "doConnect: SessionID:%d Could not set read deadline: %v\n", ctx.SessionNo, err)
+			}
 		}
 		ctx.hijTLSReader = bufio.NewReader(ctx.hijTLSConn)
 		b = false
 	default:
-		hijConn.Close()
+		_ = hijConn.Close()
 		logging.Printf("DEBUG", "doConnect: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
@@ -1417,8 +1448,8 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				if !ok {
 					return
 				}
-				hijConn.Close()
-				remoteConn.Close()
+				_ = hijConn.Close()
+				_ = remoteConn.Close()
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Client connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					// ctx.doError("Connect", ErrRequestRead, err)
@@ -1459,8 +1490,11 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				}
 
 				if n != 0 {
-					remoteConn.SetDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
-					_, err := remoteConn.Write(mbuf[:n])
+					err := remoteConn.SetDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					if err != nil {
+						logging.Printf("DEBUG", "doConnect: SessionID:%d Could not set deadline: %v\n", ctx.SessionNo, err)
+					}
+					_, err = remoteConn.Write(mbuf[:n])
 					if err != nil {
 						panic(err)
 					}
@@ -1484,12 +1518,12 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			remoteWrite = false
 			if !remoteRead {
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Remote close write\n", ctx.SessionNo)
-				remoteConn.Close()
+				_ = remoteConn.Close()
 			}
 			hijRead = false
 			if !hijWrite {
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Hij close read\n", ctx.SessionNo)
-				hijConn.Close()
+				_ = hijConn.Close()
 			}
 		}()
 
@@ -1501,8 +1535,8 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				if !ok {
 					return
 				}
-				hijConn.Close()
-				remoteConn.Close()
+				_ = hijConn.Close()
+				_ = remoteConn.Close()
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Server connection closed\n", ctx.SessionNo)
 				if !isConnectionClosed(err) {
 					// ctx.doError("Connect", ErrResponseWrite, err)
@@ -1543,7 +1577,10 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 				}
 
 				if n != 0 {
-					hijConn.SetDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					err := hijConn.SetDeadline(time.Now().Add(time.Duration(ctx.ReadTimeout) * time.Second))
+					if err != nil {
+						logging.Printf("DEBUG", "doConnect: SessionID:%d Could not set deadline: %v\n", ctx.SessionNo, err)
+					}
 					_, err = hijConn.Write(mbuf[:n])
 					if err != nil {
 						panic(err)
@@ -1568,19 +1605,19 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			remoteRead = false
 			if !remoteWrite {
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Remote close read\n", ctx.SessionNo)
-				remoteConn.Close()
+				_ = remoteConn.Close()
 			}
 			hijWrite = false
 			if !hijRead {
 				logging.Printf("DEBUG", "doMitm: SessionID:%d Hij close write\n", ctx.SessionNo)
-				hijConn.Close()
+				_ = hijConn.Close()
 			}
 		}()
 
 		wg.Wait()
 		logging.Printf("INFO", "doMitm: SessionID:%d Websocket: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
-		hijConn.Close()
-		remoteConn.Close()
+		_ = hijConn.Close()
+		_ = remoteConn.Close()
 		logging.Printf("DEBUG", "doMitm: SessionID:%d Connection closed.\n", ctx.SessionNo)
 		ctx.AccessLog.Endtime = time.Now()
 		ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
@@ -1609,10 +1646,10 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 		req.URL.Host = ctx.ConnectHost
 		w = NewConnResponseWriter(ctx.hijTLSConn)
 		r = req
-		ctx.AccessLog.Method = r.Method
-		ctx.AccessLog.Scheme = r.URL.Scheme
-		ctx.AccessLog.Url = r.URL.Redacted()
-		ctx.AccessLog.Version = r.Proto
+		ctx.AccessLog.Method = CleanUntrustedString(ctx, "Method", r.Method)
+		ctx.AccessLog.Scheme = CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
+		ctx.AccessLog.Url = CleanUntrustedString(ctx, "URL Redacted", r.URL.Redacted())
+		ctx.AccessLog.Version = CleanUntrustedString(ctx, "Proto", r.Proto)
 	}
 	return
 }
@@ -1622,16 +1659,16 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	var err error
 	if !r.URL.IsAbs() {
 		if r.Body != nil {
-			defer r.Body.Close()
+			defer func() { _ = r.Body.Close() }()
 		}
-		err := ServeInMemory(w, 500, nil, []byte("This is a proxy server. Does not respond to non-proxy requests."))
+		err := ServeInMemory(ctx, w, 500, nil, []byte("This is a proxy server. Does not respond to non-proxy requests."))
 		if err != nil && !isConnectionClosed(err) {
 			ctx.doError("Request", ErrResponseWrite, err)
 		}
 		return true, err
 	}
-
-	if r.URL.Scheme == "ftp" {
+	tS := CleanUntrustedString(ctx, "URL Scheme", r.URL.Scheme)
+	if tS == "ftp" {
 		b, err := ctx.doFtp(w, r)
 		if err != nil {
 			respCode := 500
@@ -1661,7 +1698,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 			}
 			resp.Request = r
 			resp.TransferEncoding = nil
-			err = ServeResponse(w, resp)
+			err = ServeResponse(ctx, w, resp)
 			if err != nil && !isConnectionClosed(err) {
 				ctx.doError("Request", ErrResponseWrite, err)
 			}
@@ -1670,10 +1707,11 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 		// return ctx.doFtp(w, r)
 	}
 
-	r.RequestURI = r.URL.String()
-	logging.Printf("DEBUG", "doRequest: SessionID:%d New Connection to %s\n", ctx.SessionNo, r.URL.Host)
+	r.RequestURI = CleanUntrustedString(ctx, "URL String", r.URL.String())
+	tH := CleanUntrustedString(ctx, "URL Host", r.URL.Host)
+	logging.Printf("DEBUG", "doRequest: SessionID:%d New Connection to %s\n", ctx.SessionNo, tH)
 
-	upgrade := r.Header.Get("Upgrade")
+	upgrade := CleanUntrustedString(ctx, "Upgrade", r.Header.Get("Upgrade"))
 	if upgrade == "websocket" {
 		logging.Printf("INFO", "doRequest: SessionID:%d Client requested websocket upgrade: Upgrade websocket\n", ctx.SessionNo)
 	}
@@ -1717,7 +1755,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 			return false, nil
 		}
 		if r.Body != nil {
-			defer r.Body.Close()
+			defer func() { _ = r.Body.Close() }()
 		}
 	}
 	resp.Request = r
@@ -1725,7 +1763,7 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 	if ctx.ConnectAction == ConnectMitm && ctx.Prx.MitmChunked {
 		resp.TransferEncoding = []string{"chunked"}
 	}
-	err = ServeResponse(w, resp)
+	err = ServeResponse(ctx, w, resp)
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Request", ErrResponseWrite, err)
 	}
@@ -1742,25 +1780,24 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	if r.Body != nil {
-		defer r.Body.Close()
+		defer func() { _ = r.Body.Close() }()
 	}
 	var bodySize int64
 	var err error
 	var resp *http.Response
 
-	upgrade := r.Header.Get("Upgrade")
+	upgrade := CleanUntrustedString(ctx, "Upgrade", r.Header.Get("Upgrade"))
 	if upgrade == "websocket" {
 		// Need to capture Upgrades as Rountripper can not deal with the 101 Upgrade response
 		// The response does not have a body and Roundtripper waits for a body until it times out
-		var host string
-		if r.Host == "" {
-			host = r.URL.Host
-		} else {
-			host = r.Host
+		host := CleanUntrustedString(ctx, "Host", r.Host)
+		if host == "" {
+			host = CleanUntrustedString(ctx, "URL Host", r.URL.Host)
 		}
 		logging.Printf("DEBUG", "doResponse: SessionID:%d Connection upgrade: %s\n", ctx.SessionNo, upgrade)
 		if !HasPort.MatchString(host) {
-			switch r.URL.Scheme {
+			tS := CleanUntrustedString(ctx, "URL Scheme", r.URL.Scheme)
+			switch tS {
 			case "http":
 				host += ":80"
 			case "https":
@@ -1770,9 +1807,10 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			}
 		}
 		ctx.WebsocketState.WebsocketConn, err = ctx.Dial(ctx, "tcp", host)
-		if r.URL.Scheme == "https" {
+		tS := CleanUntrustedString(ctx, "URL Scheme", r.URL.Scheme)
+		if tS == "https" {
 			// TLS handshake to origin
-			serverName := r.URL.Hostname()
+			serverName := CleanUntrustedString(ctx, "URL Hostname", r.URL.Hostname())
 			logging.Printf("DEBUG", "doResponse: SessionID:%d Setup TLS connection to %s\n", ctx.SessionNo, serverName)
 			tlsConf := ctx.TLSConfig
 			if tlsConf == nil {
@@ -1829,16 +1867,20 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		bodySize = r.ContentLength
 	}
 	headerSize := int64(0)
-	for name, values := range r.Header {
-		for _, value := range values {
-			headerSize += int64(len(name) + len(value) + len(": ") + len("\r\n"))
+	for k, v := range r.Header {
+		tK := CleanUntrustedString(ctx, "Header key", k)
+		for _, value := range v {
+			tV := CleanUntrustedString(ctx, "Header Value", value)
+			headerSize += int64(len(tK) + len(tV) + len(": ") + len("\r\n"))
 		}
 	}
 	// it seems host header information is moved to different entries in structure
-	if r.Host == "" {
-		headerSize += int64(len("Host: ") + len(r.URL.Host) + len("\r\n"))
+	tH := CleanUntrustedString(ctx, "Host", r.Host)
+	tU := CleanUntrustedString(ctx, "URL Host", r.URL.Host)
+	if tH == "" {
+		headerSize += int64(len("Host: ") + len(tU) + len("\r\n"))
 	} else {
-		headerSize += int64(len("Host: ") + len(r.Host) + len("\r\n"))
+		headerSize += int64(len("Host: ") + len(tH) + len("\r\n"))
 	}
 	// Added by roundtripper in transport request as extra header to server.
 	headerSize += int64(len("Accept-Encoding: gzip\r\n"))
@@ -1853,7 +1895,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			ctx.doError("Response", ErrRoundTrip, err)
 		}
 		ctx.AccessLog.Status = "404 " + err.Error()
-		err := ServeInMemory(w, 404, nil, nil)
+		err := ServeInMemory(ctx, w, 404, nil, nil)
 		if err != nil && !isConnectionClosed(err) {
 			ctx.doError("Response", ErrResponseWrite, err)
 		}
@@ -1906,7 +1948,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			resp.TransferEncoding = []string{"chunked"}
 		}
 	}
-	err = ServeResponse(w, resp)
+	err = ServeResponse(ctx, w, resp)
 	if err != nil && !isConnectionClosed(err) {
 		ctx.doError("Response", ErrResponseWrite, err)
 		ctx.AccessLog.Status = "500 " + err.Error()
@@ -1915,11 +1957,13 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		bodySize := resp.ContentLength
 		// Calculate the size of the headers
 		headerSize := 0
-		for name, values := range resp.Header {
-			for _, value := range values {
+		for k, v := range resp.Header {
+			tK := CleanUntrustedString(ctx, "Header key", k)
+			for _, value := range v {
+				tV := CleanUntrustedString(ctx, "Header Value", value)
 				// Via header added by this proxy to client
-				if strings.ToUpper(name) != "VIA" {
-					headerSize += len(name) + len(value) + len(": ") + len("\r\n")
+				if strings.ToUpper(tK) != "VIA" {
+					headerSize += len(tK) + len(tV) + len(": ") + len("\r\n")
 				}
 			}
 		}

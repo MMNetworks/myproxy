@@ -45,7 +45,8 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		return nil, errors.New("empty context request")
 	}
 	// Only use PrxdDial for Connect method
-	if ctx.ConnectReq == nil && ctx.Req.Method != "CONNECT" {
+	tM := httpproxy.CleanUntrustedString(ctx, "Method", ctx.Req.Method)
+	if ctx.ConnectReq == nil && tM != "CONNECT" {
 		logging.Printf("ERROR", "PrxDial: SessionID:%d Received empty connect request\n", ctx.SessionNo)
 		return nil, errors.New("empty request to proxy")
 	}
@@ -64,42 +65,64 @@ func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) 
 		} else {
 			req = ctx.Req
 		}
-		fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\n", address)
-		fmt.Fprintf(conn, "Host: %s\r\n", host)
-		fmt.Fprintf(conn, "Proxy-Connection: Keep-Alive\r\n")
+		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\n", address)
+		if err != nil {
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Error writing to proxy connection %v %v\n", ctx.SessionNo, c2s(conn), err)
+			return nil, err
+		}
+		_, err = fmt.Fprintf(conn, "Host: %s\r\n", host)
+		if err != nil {
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Error writing to proxy connection %v %v\n", ctx.SessionNo, c2s(conn), err)
+			return nil, err
+		}
+		_, err = fmt.Fprintf(conn, "Proxy-Connection: Keep-Alive\r\n")
+		if err != nil {
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Error writing to proxy connection %v %v\n", ctx.SessionNo, c2s(conn), err)
+			return nil, err
+		}
 		for k, v := range req.Header {
-			if k != "Host" && k != "Proxy-Connection" {
+			tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
+			if tK != "Host" && tK != "Proxy-Connection" {
 				for i := 0; i < len(v); i++ {
-					fmt.Fprintf(conn, "%s: %s\r\n", k, v[i])
+					tV := httpproxy.CleanUntrustedString(ctx, "Header Value", v[i])
+					_, err = fmt.Fprintf(conn, "%s: %s\r\n", tK, tV)
+					if err != nil {
+						logging.Printf("ERROR", "PrxDial: SessionID:%d Error writing to proxy connection %v %v\n", ctx.SessionNo, c2s(conn), err)
+						return nil, err
+					}
+					logging.Printf("DEBUG", "PrxDial: SessionID:%d Add clean original header to proxy connection: %s=%s\n", ctx.SessionNo, tK, tV)
 				}
-				logging.Printf("DEBUG", "PrxDial: SessionID:%d Add original header to proxy connection: %s=%s\n", ctx.SessionNo, k, v)
 			}
 		}
-		fmt.Fprintf(conn, "\r\n")
+		_, err = fmt.Fprintf(conn, "\r\n")
+		if err != nil {
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Error writing to proxy connection %v %v\n", ctx.SessionNo, c2s(conn), err)
+			return nil, err
+		}
 
 		resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 		if err != nil {
 			logging.Printf("ERROR", "PrxDial: SessionID:%d Error reading response from proxy: %v\n", ctx.SessionNo, err)
 			return nil, err
 		}
-		ctx.AccessLog.Status = resp.Status
+		ctx.AccessLog.Status = httpproxy.CleanUntrustedString(ctx, "Status", resp.Status)
 		if resp.StatusCode == http.StatusProxyAuthRequired {
 			_, err = io.ReadAll(resp.Body)
 			if err != nil {
 				logging.Printf("ERROR", "PrxDial: SessionID:%d Could not read response body from response: %v\n", ctx.SessionNo, err)
 				return nil, err
 			}
-			defer resp.Body.Close()
 
+			defer func() { _ = resp.Body.Close() }()
 			req.Header.Add("Proxy-Connection", "Keep-Alive")
 			authenticate.DoProxyAuth(ctx, req, resp)
 		}
 
-		ctx.AccessLog.Status = resp.Status
+		ctx.AccessLog.Status = httpproxy.CleanUntrustedString(ctx, "Status", resp.Status)
 		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
 		ctx.AccessLog.DestinationIP = ""
 		if resp.StatusCode != http.StatusOK {
-			logging.Printf("ERROR", "PrxDial: SessionID:%d Failed to connect to %s via proxy %s. Response status: %s\n", ctx.SessionNo, address, proxy, resp.Status)
+			logging.Printf("ERROR", "PrxDial: SessionID:%d Failed to connect to %s via proxy %s. Response status: %s\n", ctx.SessionNo, address, proxy, ctx.AccessLog.Status)
 			return nil, errors.New("CONNECT tunnel failed, response " + strconv.Itoa(resp.StatusCode))
 		}
 	}

@@ -305,6 +305,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 				}
 			} else {
 				logging.Printf("WARNING", "queryRecord: SessionID:%d DoH TLS certificate verification DISABLED for %s - vulnerable to MITM attacks!\n", ctx.SessionNo, resolver)
+				// #nosec G402 -- intentionally disabled
 				TLSConfig = &tls.Config{
 					ClientCAs:          caCertPool,
 					InsecureSkipVerify: true, // Skip certificate verification
@@ -357,6 +358,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 		logging.Printf("DEBUG", "queryRecord: SessionID:%d Use DOH resolver %s\n", ctx.SessionNo, resolver)
 
 		start := time.Now()
+		// #nosec G704 -- resolver URL comes from trusted, access controlled configuration; not user-controlled input
 		resp, err2 := httpClient.Do(req)
 		elapsed := time.Since(start)
 
@@ -364,7 +366,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 			logging.Printf("ERROR", "queryRecord: SessionID:%d Could not read DoH response elapsed time: %v error: %v\n", ctx.SessionNo, elapsed, err2)
 			return nil, err2
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		r, err = dnshttp.Response(resp)
 		if err != nil {
@@ -401,6 +403,7 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 					}
 				} else {
 					logging.Printf("WARNING", "queryRecord: SessionID:%d DoT TLS certificate verification DISABLED for %s - vulnerable to MITM attacks!\n", ctx.SessionNo, resolver)
+					// #nosec G402 -- intentionally disabled
 					TLSConfig = &tls.Config{
 						ClientCAs:          caCertPool,
 						InsecureSkipVerify: true, // Skip certificate verification
@@ -594,7 +597,7 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 				case result <- conn:
 					cancel()
 				default:
-					conn.Close()
+					_ = conn.Close()
 				}
 			} else {
 				if dctx.Err() == context.Canceled || dctx.Err() == context.DeadlineExceeded {
@@ -628,6 +631,83 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 	Mu.Unlock()
 	return nil, errors.New("connect failed to all resolved IPs")
 
+}
+
+func CleanUntrustedString(ctx *Context, key string, s string) string {
+	var b strings.Builder
+	var logged bool
+	for _, r := range s {
+		if r >= 32 && r < 127 { // printable ASCII
+			b.WriteRune(r)
+		} else {
+			if !logged {
+				logging.Printf("WARNING", "CleanUntrustedString: SessionID:%d Found invalid character in %s: Removed it !\n", ctx.SessionNo, key)
+				logged = true
+			}
+		}
+	}
+	return b.String()
+}
+
+func clientIP(ctx *Context, r *http.Request) string {
+	// 1. Try Forwarded (RFC 7239)
+	if ip := fromForwarded(ctx, r); ip != "" {
+		return ip
+	}
+
+	// 2. Try X-Forwarded-For
+	if ip := fromXFF(ctx, r); ip != "" {
+		return ip
+	}
+
+	return ""
+}
+
+func fromForwarded(ctx *Context, r *http.Request) string {
+	values := r.Header.Values("Forwarded")
+	if len(values) == 0 {
+		return ""
+	}
+
+	combined := CleanUntrustedString(ctx, "Forwarded header", strings.Join(values, ","))
+	entries := strings.Split(combined, ",")
+
+	for _, entry := range entries {
+		parts := strings.Split(entry, ";")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if strings.HasPrefix(strings.ToLower(p), "for=") {
+				v := strings.TrimPrefix(p, "for=")
+				v = strings.Trim(v, "\"") // remove quotes
+				v = strings.Trim(v, "[]") // remove IPv6 brackets
+
+				if net.ParseIP(v) != nil {
+					logging.Printf("DEBUG", "fromForwarded: SessionID:%d Forwarded IP: %s\n", ctx.SessionNo, v)
+					return v
+				}
+			}
+		}
+	}
+	logging.Printf("ERROR", "fromForwarded: SessionID:%d Invalid Forwarded IP: %s\n", ctx.SessionNo, combined)
+	return ""
+}
+
+func fromXFF(ctx *Context, r *http.Request) string {
+	xff := CleanUntrustedString(ctx, "X-Forwarded-For header", r.Header.Get("X-Forwarded-For"))
+	if xff == "" {
+		return ""
+	}
+
+	parts := strings.Split(xff, ",")
+	for _, p := range parts {
+		ip := strings.TrimSpace(p)
+		if net.ParseIP(ip) != nil {
+			logging.Printf("DEBUG", "fromXFF: SessionID:%d X-Forwarded-For IP: %s\n", ctx.SessionNo, ip)
+			return ip
+		}
+	}
+	logging.Printf("ERROR", "fromXFF: SessionID:%d Invalid X-Forwarded-For IP: %s\n", ctx.SessionNo, xff)
+	return ""
 }
 
 // ServeHTTP implements http.Handler.
@@ -667,22 +747,15 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Initialise access log values
 	ctx.AccessLog.Proxy, _ = os.Hostname()
 	ctx.AccessLog.SessionID = ctx.SessionNo
-	ctx.AccessLog.SourceIP = r.RemoteAddr
+	ctx.AccessLog.SourceIP = CleanUntrustedString(ctx, "RemoteAddr", r.RemoteAddr)
 	ctx.AccessLog.DestinationIP = ""
-	ctx.AccessLog.UserAgent = r.Header.Get("User-Agent")
-	ctx.AccessLog.ForwardedIP = ""
-	if len(r.Header.Values("X-Forwarded-For")) > 0 {
-		forwardedValues := r.Header.Values("X-Forwarded-For")
-		ctx.AccessLog.ForwardedIP = strings.Join(forwardedValues[:], ",")
-	} else if len(r.Header.Values("Forwarded")) > 0 {
-		forwardedValues := r.Header.Values("Forwarded")
-		ctx.AccessLog.ForwardedIP = strings.Join(forwardedValues[:], ",")
-	}
+	ctx.AccessLog.UserAgent = CleanUntrustedString(ctx, "User-Agent", r.Header.Get("User-Agent"))
+	ctx.AccessLog.ForwardedIP = clientIP(ctx, r)
 	ctx.AccessLog.UpstreamProxyIP = ""
-	ctx.AccessLog.Method = r.Method
-	ctx.AccessLog.Scheme = r.URL.Scheme
-	ctx.AccessLog.Url = r.URL.Redacted()
-	ctx.AccessLog.Version = r.Proto
+	ctx.AccessLog.Method = CleanUntrustedString(ctx, "Method", r.Method)
+	ctx.AccessLog.Scheme = CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
+	ctx.AccessLog.Url = CleanUntrustedString(ctx, "URL", r.URL.Redacted())
+	ctx.AccessLog.Version = CleanUntrustedString(ctx, "Protocol", r.Proto)
 	ctx.AccessLog.Status = ""
 	ctx.AccessLog.BytesIN = 0
 	ctx.AccessLog.BytesOUT = 0
@@ -769,6 +842,6 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ctx.hijTLSConn != nil {
-		ctx.hijTLSConn.Close()
+		_ = ctx.hijTLSConn.Close()
 	}
 }

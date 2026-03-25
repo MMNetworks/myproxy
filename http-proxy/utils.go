@@ -42,16 +42,18 @@ func InMemoryResponse(code int, header http.Header, body []byte) *http.Response 
 }
 
 // ServeResponse serves HTTP response to http.ResponseWriter.
-func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
+func ServeResponse(ctx *Context, w http.ResponseWriter, resp *http.Response) error {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 	if resp.Body != nil {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 	}
 
 	h := w.Header()
 	for k, v := range resp.Header {
-		for _, v1 := range v {
-			h.Add(k, v1)
+		tK := CleanUntrustedString(ctx, "Header key", k)
+		for _, value := range v {
+			tV := CleanUntrustedString(ctx, "Header Value", value)
+			h.Add(tK, tV)
 		}
 	}
 	if h.Get("Date") == "" {
@@ -71,12 +73,12 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 		if len(resp.TransferEncoding) > 1 {
 			return ErrUnsupportedTransferEncoding
 		}
-		te = resp.TransferEncoding[0]
+		te = CleanUntrustedString(ctx, "Transfer Encoding", resp.TransferEncoding[0])
 	}
 	h.Del("Connection")
 	clientConnection := ""
 	if resp.Request != nil {
-		clientConnection = strings.ToLower(resp.Request.Header.Get("Connection"))
+		clientConnection = strings.ToLower(CleanUntrustedString(ctx, "Connection", resp.Request.Header.Get("Connection")))
 	}
 	switch clientConnection {
 	case "close":
@@ -103,6 +105,11 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 			}
 		}
 	case "chunked":
+		if h.Get("Content-Length") != "" {
+			h.Del("Content-Length")
+			logging.Printf("DEBUG", "don't allow content-length with chunked encoding")
+		}
+		// #nosec G113 -- content-length is removed before response is send
 		h.Set("Transfer-Encoding", "chunked")
 		w.WriteHeader(resp.StatusCode)
 		w2 := httputil.NewChunkedWriter(w)
@@ -124,9 +131,9 @@ func ServeResponse(w http.ResponseWriter, resp *http.Response) error {
 }
 
 // ServeInMemory serves HTTP response given arguments to http.ResponseWriter.
-func ServeInMemory(w http.ResponseWriter, code int, header http.Header, body []byte) error {
+func ServeInMemory(ctx *Context, w http.ResponseWriter, code int, header http.Header, body []byte) error {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	return ServeResponse(w, InMemoryResponse(code, header, body))
+	return ServeResponse(ctx, w, InMemoryResponse(code, header, body))
 }
 
 var HasPort = regexp.MustCompile(`:\d+$`)

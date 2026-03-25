@@ -48,13 +48,13 @@ func DoNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 		}
 	}
 	if ntlmResp.StatusCode != http.StatusProxyAuthRequired {
-		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d Supported authentication methods: %s\n", ctx.SessionNo, ntlmResp.Header.Get("Proxy-Authenticate"))
+		logging.Printf("ERROR", "DoNTLMProxyAuth: SessionID:%d Supported authentication methods: %s\n", ctx.SessionNo, httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", ntlmResp.Header.Get("Proxy-Authenticate")))
 		OverwriteResponse(ctx, resp, ntlmResp)
 		return err
 	}
-	challenge := strings.Split(ntlmResp.Header.Get("Proxy-Authenticate"), " ")
+	challenge := strings.Split(httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", ntlmResp.Header.Get("Proxy-Authenticate")), " ")
 	if len(challenge) < 2 {
-		logging.Printf("DEBUG", "DoNTLMProxyAuth: SessionID:%d The proxy did not return an NTLM challenge, got: '%s'\n", ctx.SessionNo, ntlmResp.Header.Get("Proxy-Authenticate"))
+		logging.Printf("DEBUG", "DoNTLMProxyAuth: SessionID:%d The proxy did not return an NTLM challenge, got: '%s'\n", ctx.SessionNo, httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", ntlmResp.Header.Get("Proxy-Authenticate")))
 		OverwriteResponse(ctx, resp, ntlmResp)
 		return errors.New("no NTLM challenge received")
 	}
@@ -183,10 +183,10 @@ func DoNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 	}
 	if negoResp.StatusCode == http.StatusProxyAuthRequired {
 		// need really a loop, but unlikely to happen in real life
-		logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Supported authentication methods: %s\n", ctx.SessionNo, negoResp.Header.Get("Proxy-Authenticate"))
-		challenge := strings.Split(negoResp.Header.Get("Proxy-Authenticate"), " ")
+		logging.Printf("DEBUG", "DoNegotiateProxyAuth: SessionID:%d Supported authentication methods: %s\n", ctx.SessionNo, httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", negoResp.Header.Get("Proxy-Authenticate")))
+		challenge := strings.Split(httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", negoResp.Header.Get("Proxy-Authenticate")), " ")
 		if len(challenge) < 2 {
-			logging.Printf("ERROR", "DoNegotiateProxyAuth: SessionID:%d The proxy did not return an negotiate challenge, got: '%s'\n", ctx.SessionNo, negoResp.Header.Get("Proxy-Authenticate"))
+			logging.Printf("ERROR", "DoNegotiateProxyAuth: SessionID:%d The proxy did not return an negotiate challenge, got: '%s'\n", ctx.SessionNo, httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", negoResp.Header.Get("Proxy-Authenticate")))
 			OverwriteResponse(ctx, resp, negoResp)
 			return errors.New("no Negotiate challenge received")
 		}

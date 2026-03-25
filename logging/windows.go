@@ -39,12 +39,12 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 					newlogFilename = stdoutLog
 				}
 				message := fmt.Sprintf("Printf: Cannot create eventlog: %v\n", err)
-				osPrintf(newlogFilename, "ERROR", "%s", message)
+				_, _ = osPrintf(newlogFilename, "ERROR", "%s", message)
 				message = fmt.Sprintf("Printf: switch to %s\n", newlogFilename)
-				osPrintf(newlogFilename, "INFO", "%s", message)
+				_, _ = osPrintf(newlogFilename, "INFO", "%s", message)
 				current.logFilename = newlogFilename
 				message = fmt.Sprintf(format, a...)
-				osPrintf(current.logFilename, level, "%s", message)
+				_, _ = osPrintf(current.logFilename, level, "%s", message)
 				return 0, err
 			}
 		}
@@ -95,6 +95,6 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 		err = wlog.Info(500, "UNKNONW: "+message)
 		length = len("UNKNOWN: " + message)
 	}
-	wlog.Close()
+	_ = wlog.Close()
 	return length, err
 }

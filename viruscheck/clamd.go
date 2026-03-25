@@ -91,6 +91,7 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 		if readconfig.Config.Clamd.CAfile == "insecure" {
 			// Replace the TLSClientConfig
 			logging.Printf("WARNING", "ClamdConnect: ClamAV TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n")
+			// #nosec G402 -- intentionally disabled
 			tlsConf = &tls.Config{
 				InsecureSkipVerify: true, // Skip certificate verification
 				Certificates:       []tls.Certificate{cert},
@@ -135,7 +136,7 @@ func clamdRequest(sessionNo int64, client *http.Client, url string, body []byte)
 		logging.Printf("ERROR", "clamdRequest: SessionID:%d Could not send request: %v\n", sessionNo, err)
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -223,7 +224,7 @@ func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, b
 		readPipe, writePipe := io.Pipe()
 
 		go func() {
-			defer writePipe.Close()
+			defer func() { _ = writePipe.Close() }()
 			_, err := writePipe.Write(data)
 			if err != nil {
 				logging.Printf("ERROR", "HasVirus: SessionID:%d Could not write to clamd scanner: %v\n", sessionNo, err)

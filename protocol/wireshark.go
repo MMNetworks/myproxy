@@ -20,6 +20,8 @@ import (
 // Leverages Wireshark TCP connection reader
 // wireshark -k -i TCP@127.0.0.1:19000
 
+const maxuInt32 int = int(^uint32(0))
+
 // secureRandomUint32 generates a cryptographically secure random uint32
 func secureRandomUint32() uint32 {
 	var b [4]byte
@@ -87,7 +89,7 @@ var wiresharkChan = make(chan wiresharkStruct, 65000) // Buffered channel
 
 func processor() {
 	for data := range wiresharkChan {
-		_writeWireshark(data.logTime, data.state, data.request, data.sessionNo, data.source, data.destination, data.data)
+		_ = _writeWireshark(data.logTime, data.state, data.request, data.sessionNo, data.source, data.destination, data.data)
 	}
 }
 
@@ -156,7 +158,7 @@ func acceptWireshark(listener net.Listener) {
 		matchRemote := false
 		if remoteAddr == "" {
 			logging.Printf("ERROR", "AcceptWireshark: SessionID:%d Empty remote address\n", 0)
-			conn.Close()
+			_ = conn.Close()
 			continue
 
 		}
@@ -215,7 +217,7 @@ func acceptWireshark(listener net.Listener) {
 		}
 		if !matchRemote {
 			logging.Printf("INFO", "AcceptWireshark: SessionID:%d Did not accept connection from %s\n", 0, remoteAddr)
-			conn.Close()
+			_ = conn.Close()
 			continue
 		}
 
@@ -228,14 +230,17 @@ func acceptWireshark(listener net.Listener) {
 		go func(c net.Conn) {
 			buf := make([]byte, 1)
 			for {
-				c.SetReadDeadline(time.Now().Add(1 * time.Second))
-				_, err := c.Read(buf)
+				err := c.SetReadDeadline(time.Now().Add(2 * time.Second))
 				if err != nil {
-					if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Could not set read deadline: %v\n", 0, err)
+				}
+				_, err2 := c.Read(buf)
+				if err2 != nil {
+					if netErr, ok := err2.(net.Error); ok && netErr.Timeout() {
 						// No data, but still connected
 					} else {
 						// Disconnected or other error
-						notify <- err // connection closed or error
+						notify <- err2 // connection closed or error
 						return
 					}
 				}
@@ -298,16 +303,18 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination address for %s: %v\n", sessionNo, dst, err)
 		return err
 	}
-	srcPort, err := strconv.Atoi(srcPortString)
+	v, err := strconv.ParseUint(srcPortString, 10, 16)
 	if err != nil {
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert source port for %s to int: %v\n", sessionNo, src, err)
 		return err
 	}
-	dstPort, err := strconv.Atoi(dstPortString)
+	srcPort := uint16(v)
+	v, err = strconv.ParseUint(dstPortString, 10, 16)
 	if err != nil {
 		logging.Printf("ERROR", "WriteWireshark: SessionID:%d Could not convert destination port for %s to int: %v\n", sessionNo, dst, err)
 		return err
 	}
+	dstPort := uint16(v)
 
 	if tcpState.tcpSequence == 0 {
 		tcpState.tcpClientRand = secureRandomUint32() & 0xFFFFFF // Avoid overflow by never starting too high
@@ -358,7 +365,12 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 			}
 			tcpSeq = tcpState.tcpClientRand + tcpState.tcpSequence
 			tcpAck = tcpState.tcpServerRand + tcpState.tcpAcknowledge
-			tcpState.tcpLength = uint32(len(data[i:min(len(data), i+step)]))
+			u := len(data[i:min(len(data), i+step)])
+			if u > maxuInt32 {
+				logging.Printf("DEBUG", "WriteWireshark: SessionID:%d data length > max uint32: %d/%d\n", sessionNo, u, maxuInt32)
+				return errors.New("data length > uint32")
+			}
+			tcpState.tcpLength = uint32(u)
 			tcpState.wasRequest = true // This is a client request
 		} else {
 			if tcpState.wasRequest { // Was previous packet a client request ?
@@ -370,7 +382,12 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 			}
 			tcpSeq = tcpState.tcpServerRand + tcpState.tcpSequence
 			tcpAck = tcpState.tcpClientRand + tcpState.tcpAcknowledge
-			tcpState.tcpLength = uint32(len(data[i:min(len(data), i+step)]))
+			u := len(data[i:min(len(data), i+step)])
+			if u > maxuInt32 {
+				logging.Printf("DEBUG", "WriteWireshark: SessionID:%d data length > max uint32: %d/%d\n", sessionNo, u, maxuInt32)
+				return errors.New("data length > uint32")
+			}
+			tcpState.tcpLength = uint32(u)
 			tcpState.wasRequest = false // This is a server response
 		}
 		logging.Printf("DEBUG", "WriteWireshark: SessionID:%d Added Sequence/Acknowledge %d/%d to packet. New length %d (wasRequest/isRequest: %t/%t)\n", sessionNo, tcpState.tcpSequence, tcpState.tcpAcknowledge, tcpState.tcpLength, tcpState.wasRequest, isRequest)
@@ -416,7 +433,7 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 			}
 
 			// Set the TCP header length based on the options
-			tcp.SetNetworkLayerForChecksum(&ip)
+			_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 			err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 			if err != nil {
@@ -435,7 +452,7 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 				FlowLabel:    0,  // optional flow label
 			}
 			// Set the TCP header length based on the options
-			tcp.SetNetworkLayerForChecksum(&ip)
+			_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 			err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 			if err != nil {
@@ -462,7 +479,7 @@ func _writeWireshark(timeStamp time.Time, tcp TCPState, isRequest bool, sessionN
 
 }
 
-func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP string, srcPort int, dstPort int) error {
+func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcIP string, dstIP string, srcPort uint16, dstPort uint16) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
 	var err error
 
@@ -525,7 +542,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			TTL:      64,
 		}
 		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
+		_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 		err := gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {
@@ -543,7 +560,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			FlowLabel:    0,  // optional flow label
 		}
 		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
+		_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 		err := gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {
@@ -616,7 +633,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			TTL:      64,
 		}
 		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
+		_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {
@@ -634,7 +651,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			FlowLabel:    0,  // optional flow label
 		}
 		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
+		_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {
@@ -707,7 +724,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			TTL:      64,
 		}
 		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
+		_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {
@@ -725,7 +742,7 @@ func writeSynAck(timeStamp time.Time, tcpState *TCPStruct, sessionNo int64, srcI
 			FlowLabel:    0,  // optional flow label
 		}
 		// Set the TCP header length based on the options
-		tcp.SetNetworkLayerForChecksum(&ip)
+		_ = tcp.SetNetworkLayerForChecksum(&ip)
 
 		err = gopacket.SerializeLayers(buf, opts, &eth, &ip, &tcp, payload)
 		if err != nil {

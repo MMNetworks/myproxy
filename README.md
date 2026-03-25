@@ -221,6 +221,7 @@ listen:
 #  rootcafile: "CA.pem"
   rootcafile: "insecure"
   readtimeout: 0
+  readtheaderimeout: 0
   writetimeout: 0
   idletimeout: 300
 wireshark:

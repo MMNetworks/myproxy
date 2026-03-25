@@ -42,12 +42,13 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 		},
 	}
 	proxyAuthValues := resp.Header.Values("Proxy-Authenticate")
-	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Proxy-Authenticate header: %s\n", ctx.SessionNo, proxyAuthValues)
+	tV := httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", strings.Join(proxyAuthValues, ","))
+	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Proxy-Authenticate header: %s\n", ctx.SessionNo, tV)
 	// Get best match
 	var bestAuth string
 	for _, v := range readconfig.Config.Proxy.Authentication {
 		logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Determine preferred authentication method: %s|%s\n", ctx.SessionNo, v, strings.Join(proxyAuthValues[:], ","))
-		authMethods := strings.ToUpper(strings.Join(proxyAuthValues[:], ","))
+		authMethods := httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", strings.ToUpper(strings.Join(proxyAuthValues[:], ",")))
 		if strings.Contains(authMethods, strings.ToUpper(v)) {
 			logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Preferred method: %s\n", ctx.SessionNo, v)
 			bestAuth = v
@@ -55,7 +56,7 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 		}
 	}
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Selected authentication method: %s\n", ctx.SessionNo, bestAuth)
-	authMethods := strings.ToUpper(strings.Join(proxyAuthValues[:], ","))
+	authMethods := httpproxy.CleanUntrustedString(ctx, "Proxy-Authenticate", strings.ToUpper(strings.Join(proxyAuthValues[:], ",")))
 	ntlm := strings.Contains(authMethods, "NTLM")
 	nego := strings.Contains(authMethods, "NEGOTIATE")
 	basic := strings.Contains(authMethods, "BASIC")
@@ -85,7 +86,9 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 	}
 	logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Auth done\n", ctx.SessionNo)
 	for k, v := range resp.Header {
-		logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Response header: %s=%s\n", ctx.SessionNo, k, v)
+		tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
+		tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
+		logging.Printf("DEBUG", "DoProxyAuth: SessionID:%d Response header: %s=%s\n", ctx.SessionNo, tK, tV)
 	}
 }
 
@@ -125,16 +128,20 @@ func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *
 		return
 	}
 	orgResp.StatusCode = newResp.StatusCode
-	orgResp.Status = newResp.Status
+	orgResp.Status = httpproxy.CleanUntrustedString(ctx, "Status", newResp.Status)
 	for k, v := range orgResp.Header {
 		orgResp.Header.Del(k)
-		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Delete header %s:%s\n", ctx.SessionNo, k, v)
+		tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
+		tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
+		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Delete header %s:%s\n", ctx.SessionNo, tK, tV)
 	}
 	for k, v := range newResp.Header {
 		for i := 0; i < len(v); i++ {
 			orgResp.Header.Add(k, v[i])
 		}
-		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Add header %s=%s\n", ctx.SessionNo, k, v)
+		tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
+		tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
+		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Add header %s=%s\n", ctx.SessionNo, tK, tV)
 	}
 	if newResp.Body != http.NoBody {
 		orgResp.Body = newResp.Body
@@ -143,5 +150,8 @@ func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *
 	}
 	orgResp.ContentLength = newResp.ContentLength
 	orgResp.TLS = newResp.TLS
-	copy(orgResp.TransferEncoding, newResp.TransferEncoding)
+	for _, v := range newResp.TransferEncoding {
+		orgResp.TransferEncoding = append(orgResp.TransferEncoding, httpproxy.CleanUntrustedString(ctx, "Transfer Encoding", v))
+	}
+	// copy(orgResp.TransferEncoding, newResp.TransferEncoding)
 }

@@ -607,7 +607,7 @@ func LogProcessor(readConfig ReadConfig) {
 					fmt.Printf("%s ERROR: LogProcessor: Could not open logfile %s\n", timeStamp, current.logFilename)
 					return
 				}
-				defer logFile.Close()
+				defer func() { _ = logFile.Close() }()
 				logBuffer = bufio.NewWriterSize(logFile, 64*1024) // 64KB buffer
 			} // else write to system log
 		} else {
@@ -627,7 +627,7 @@ func LogProcessor(readConfig ReadConfig) {
 					fmt.Printf("%s ERROR: LogProcessor: Could not open accesslog file %s\n", timeStamp, current.accessLog)
 					return
 				}
-				defer accessLogFile.Close()
+				defer func() { _ = accessLogFile.Close() }()
 				accessBuffer = bufio.NewWriterSize(accessLogFile, 64*1024) // 64KB buffer
 			} // else write to sysetm log
 		} else {
@@ -641,35 +641,35 @@ func LogProcessor(readConfig ReadConfig) {
 			select {
 			case s := <-sig:
 				if s == syscall.SIGHUP {
-					logBuffer.Flush()
-					accessBuffer.Flush()
-					logFile.Close()
-					accessLogFile.Close()
+					_ = logBuffer.Flush()
+					_ = accessBuffer.Flush()
+					_ = logFile.Close()
+					_ = accessLogFile.Close()
 					// read new file name
 					break flush
 				}
 			case lStruct, ok := <-logChan:
 				if !ok {
-					logBuffer.Flush()
-					accessBuffer.Flush()
+					_ = logBuffer.Flush()
+					_ = accessBuffer.Flush()
 					timeStamp := time.Now().Format(time.RFC1123)
 					fmt.Printf("%s ERROR: LogProcessor: channel error\n", timeStamp)
 					return
 				}
 				if strings.ToUpper(lStruct.filename) == "SYSLOG" || strings.ToUpper(lStruct.filename) == "EVENTLOG" {
-					_systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
+					_, _ = _systemLog(lStruct.time, lStruct.level, "%s", lStruct.message)
 				} else {
 					if strings.EqualFold(lStruct.filename, current.logFilename) {
-						_osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
+						_, _ = _osPrintf(lStruct.time, logBuffer, lStruct.level, "%s", lStruct.message)
 					} else if strings.EqualFold(lStruct.filename, current.accessLog) {
-						_osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
+						_, _ = _osPrintf(lStruct.time, accessBuffer, lStruct.level, "%s", lStruct.message)
 					} else {
-						_osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")
+						_, _ = _osPrintf(lStruct.time, logBuffer, "ERROR", "%s", "ERROR: Unkown log file "+lStruct.filename+"\n")
 					}
 				}
 			case <-ticker.C:
-				logBuffer.Flush()    // periodic flush
-				accessBuffer.Flush() // periodic flush
+				_ = logBuffer.Flush()    // periodic flush
+				_ = accessBuffer.Flush() // periodic flush
 			}
 		}
 	}
@@ -681,7 +681,7 @@ func GetFunctionName() string {
 	return fn.Name()
 }
 
-func Printf(level string, format string, a ...any) (int, error) {
+func Printf(level string, format string, a ...any) {
 	message := fmt.Sprintf(format, a...)
 	formatString := time.RFC1123
 	current.Mu.Lock()
@@ -692,11 +692,8 @@ func Printf(level string, format string, a ...any) (int, error) {
 
 	timeStamp := time.Now().Format(formatString)
 	line := logStruct{time: timeStamp, filename: current.logFilename, level: level, message: message}
-	length := len(level + ": " + message)
 
 	logChan <- line
-
-	return length, nil
 }
 
 func osPrintf(logFilename string, level string, format string, a ...any) (int, error) {

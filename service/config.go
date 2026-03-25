@@ -1,3 +1,3 @@
 package service
 
-const Version = "3.3.3"
+const Version = "3.3.6"

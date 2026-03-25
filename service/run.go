@@ -66,7 +66,8 @@ func setTLSBreak(ctx *httpproxy.Context) {
 	} else {
 		status = "disabled"
 	}
-	logging.Printf("INFO", "setTLSBreak: SessionID:%d TLS Break for URL %s: %s\n", ctx.SessionNo, ctx.Req.URL.Redacted(), status)
+	tU := httpproxy.CleanUntrustedString(ctx, "URL Redacted", ctx.Req.URL.Redacted())
+	logging.Printf("INFO", "setTLSBreak: SessionID:%d TLS Break for URL %s: %s\n", ctx.SessionNo, tU, status)
 }
 
 func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
@@ -74,7 +75,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 	var connectionIP string = ctx.AccessLog.SourceIP
 	var forwardedIP string = ctx.AccessLog.ForwardedIP
 	var uri string = ctx.Req.URL.String()
-	var uriRedacted string = ctx.Req.URL.Redacted()
+	var uriRedacted string = httpproxy.CleanUntrustedString(ctx, "URL Redacted", ctx.Req.URL.Redacted())
 	var matchConn bool = false
 	var matchForw bool = false
 	var checkClient bool = true
@@ -89,6 +90,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 	if rootCA == "insecure" {
 		// Replace the TLSClientConfig
 		logging.Printf("WARNING", "doTLSBreak: SessionID:%d TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n", ctx.SessionNo)
+		// #nosec G402 -- intentionally disabled
 		ctx.TLSConfig = &tls.Config{
 			InsecureSkipVerify: true, // Skip certificate verification
 		}
@@ -99,6 +101,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 			return 0
 		}
 
+		// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
 		caCerts, err := os.ReadFile(rootCAFilepath)
 		if err != nil {
 			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could  not read CA bundle: %v\n", ctx.SessionNo, err)
@@ -209,23 +212,28 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter, r *http.Request) bo
 	var err error
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// Handle local request has path "/info"
-	if r.Method == "GET" && !r.URL.IsAbs() && r.URL.Path == "/info" {
-		w.Write([]byte("This is myproxy."))
+	tM := httpproxy.CleanUntrustedString(ctx, "Method", r.Method)
+	tP := httpproxy.CleanUntrustedString(ctx, "Path", r.URL.Path)
+	if tM == "GET" && !r.URL.IsAbs() && tP == "/info" {
+		_, _ = w.Write([]byte("This is myproxy."))
 		return true
 	}
 	// Check client cert if TLS is enabled
 	if r.TLS != nil {
 		if len(r.TLS.PeerCertificates) > 0 {
 			clientCert := r.TLS.PeerCertificates[0]
-			logging.Printf("DEBUG", "OnAccept: SessionID:%d Hello, Common Name: %s\n", ctx.SessionNo, clientCert.Subject.CommonName)
+			tC := httpproxy.CleanUntrustedString(ctx, "Client cert CommonName", clientCert.Subject.CommonName)
+			logging.Printf("DEBUG", "OnAccept: SessionID:%d Hello, Common Name: %s\n", ctx.SessionNo, tC)
 		} else {
 			logging.Printf("DEBUG", "OnAccept: SessionID:%d No client certificate provided\n", ctx.SessionNo)
 		}
 	}
-	logging.Printf("INFO", "OnAccept: SessionID:%d Process URL: %s\n", ctx.SessionNo, r.URL.Redacted())
+	tU := httpproxy.CleanUntrustedString(ctx, "URL Redacted", r.URL.Redacted())
+	logging.Printf("INFO", "OnAccept: SessionID:%d Process URL: %s\n", ctx.SessionNo, tU)
 	setTLSBreak(ctx)
 	setReadTimeout(ctx)
-	proxyURL, err := upstream.GetProxy(ctx, ctx.Req.URL.String())
+	tU = httpproxy.CleanUntrustedString(ctx, "URL String", ctx.Req.URL.String())
+	proxyURL, err := upstream.GetProxy(ctx, tU)
 	if err != nil {
 		logging.Printf("ERROR", "OnAccept: SessionID:%d Failed to set upstream proxy: %v\n", ctx.SessionNo, err)
 	}
@@ -280,7 +288,7 @@ func OnResponse(ctx *httpproxy.Context, req *http.Request,
 			logging.Printf("ERROR", "OnResponse: SessionID:%d Could not read response body from response: %v\n", ctx.SessionNo, err)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		authenticate.DoProxyAuth(ctx, req, resp)
 	}
 	// Add header "Via: go-httpproxy".
@@ -291,7 +299,7 @@ func setReadTimeout(ctx *httpproxy.Context) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var connectionIP string = ctx.AccessLog.SourceIP
 	var forwardedIP string = ctx.AccessLog.ForwardedIP
-	var uri string = ctx.Req.URL.Redacted()
+	var uri string = httpproxy.CleanUntrustedString(ctx, "URL Redacted", ctx.Req.URL.Redacted())
 	var matchConn bool = false
 	var matchForw bool = false
 	var checkClient bool = true
@@ -413,7 +421,11 @@ func runProxy(args []string) {
 
 	CommandLine.StringVar(&configFilename, "c", "myproxy.yaml", "Specify configuration filename.")
 
-	CommandLine.Parse(args[1:])
+	err = CommandLine.Parse(args[1:])
+	if err != nil {
+		timeStamp := time.Now().Format(time.RFC1123)
+		fmt.Printf("%s ERROR: runProxy: error parsing arguments: %v\n", timeStamp, err)
+	}
 
 	// Setup File watcher
 	watcher, err := fsnotify.NewWatcher()
@@ -421,7 +433,7 @@ func runProxy(args []string) {
 		timeStamp := time.Now().Format(time.RFC1123)
 		fmt.Printf("%s ERROR: runProxy: setting up file watcher, %v\n", timeStamp, err)
 	}
-	defer watcher.Close()
+	defer func() { _ = watcher.Close() }()
 
 	// Read Yaml config file
 	readconfig.Config, err = readconfig.ReadConfig(configFilename, watcher)
@@ -572,6 +584,7 @@ func runProxy(args []string) {
 			}
 		} else {
 			logging.Printf("WARNING", "runProxy: Listen TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n")
+			// #nosec G402 -- intentionally disabled
 			TLSConfig = &tls.Config{
 				ClientCAs:          caCertPool,
 				ClientAuth:         tls.RequestClientCert, // request client cert
@@ -579,6 +592,7 @@ func runProxy(args []string) {
 				//			ClientAuth: tls.RequireAndVerifyClientCert, // enforce client cert
 			}
 		}
+		// #nosec G112 -- ReadHeaderTimeout is set immediatley below Server is called
 		server = &http.Server{
 			Addr:           listen,
 			Handler:        prx,
@@ -586,11 +600,16 @@ func runProxy(args []string) {
 			TLSConfig:      TLSConfig,
 		}
 	} else {
+		// #nosec G112 -- ReadHeaderTimeout is set immediatley below Server is called
 		server = &http.Server{
 			Addr:           listen,
 			Handler:        prx,
 			MaxHeaderBytes: 1 << 20, // 1Mb
 		}
+	}
+	if readconfig.Config.Listen.ReadHeaderTimeout > 0 {
+		server.ReadHeaderTimeout = time.Duration(readconfig.Config.Listen.ReadHeaderTimeout) * time.Second
+		logging.Printf("INFO", "runProxy: Set proxy read header timeout to %d seconds\n", readconfig.Config.Listen.ReadHeaderTimeout)
 	}
 	if readconfig.Config.Listen.ReadTimeout > 0 {
 		server.ReadTimeout = time.Duration(readconfig.Config.Listen.ReadTimeout) * time.Second

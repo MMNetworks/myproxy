@@ -36,15 +36,16 @@ type PAC struct {
 	CacheTime int    `yaml:"cachetime"`
 }
 type Listen struct {
-	IP           string `yaml:"ip"`
-	Port         string `yaml:"port"`
-	TLS          bool   `yaml:"tls"`
-	Keyfile      string `yaml:"keyfile"`
-	Certfile     string `yaml:"certfile"`
-	CAfile       string `yaml:"rootcafile"`
-	ReadTimeout  int    `yaml:"readtimeout"`
-	WriteTimeout int    `yaml:"writetimeout"`
-	IdleTimeout  int    `yaml:"idletimeout"`
+	IP                string `yaml:"ip"`
+	Port              string `yaml:"port"`
+	TLS               bool   `yaml:"tls"`
+	Keyfile           string `yaml:"keyfile"`
+	Certfile          string `yaml:"certfile"`
+	CAfile            string `yaml:"rootcafile"`
+	ReadHeaderTimeout int    `yaml:"readheadertimeout"`
+	ReadTimeout       int    `yaml:"readtimeout"`
+	WriteTimeout      int    `yaml:"writetimeout"`
+	IdleTimeout       int    `yaml:"idletimeout"`
 }
 type Logging struct {
 	Level        string `yaml:"level"`
@@ -151,14 +152,14 @@ type Schema struct {
 
 var msec bool
 
-func printf(level string, format string, a ...any) (int, error) {
+func printf(level string, format string, a ...any) {
 	message := fmt.Sprintf(format, a...)
 	formatString := time.RFC1123
 	if msec {
 		formatString = "Mon, 02 Jan 2006 15:04:05.000 MST"
 	}
 	timeStamp := time.Now().Format(formatString)
-	return fmt.Printf("%s %s: %s", timeStamp, level, message)
+	_, _ = fmt.Printf("%s %s: %s", timeStamp, level, message)
 }
 
 func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, error) {
@@ -171,12 +172,13 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 		return nil, err
 	}
 
+	// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
 	file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
 	if err != nil {
 		printf("ERROR", "Readconfig: opening file %s, %v\n", filePath, err)
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
@@ -212,7 +214,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 				} else {
 					printf("WARNING", "ReadConfig: logfile %s exists. Will append \n", configOut.Logging.File)
 				}
-				defer logFile.Close()
+				defer func() { _ = logFile.Close() }()
 			}
 		} else {
 			logFile, err = os.OpenFile(configOut.Logging.File, os.O_RDWR|os.O_CREATE, 0600)
@@ -222,7 +224,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 			} else {
 				printf("INFO", "ReadConfig: logfile %s created.\n", configOut.Logging.File)
 			}
-			defer logFile.Close()
+			defer func() { _ = logFile.Close() }()
 		}
 	}
 
@@ -249,7 +251,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 				} else {
 					printf("WARNING", "ReadConfig: access logfile %s exists. Will append \n", configOut.Logging.AccessLog)
 				}
-				defer logFile.Close()
+				defer func() { _ = logFile.Close() }()
 			}
 		} else {
 			logFile, err = os.OpenFile(configOut.Logging.AccessLog, os.O_RDWR|os.O_CREATE, 0600)
@@ -259,7 +261,7 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 			} else {
 				printf("INFO", "ReadConfig: access logfile %s created.\n", configOut.Logging.AccessLog)
 			}
-			defer logFile.Close()
+			defer func() { _ = logFile.Close() }()
 		}
 	}
 
@@ -310,7 +312,9 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 	if osType != "windows" {
 		if configOut.Proxy.NtlmUser != "" && configOut.Proxy.NtlmPass == "" {
 			fmt.Printf("Enter NTLM Password for %s: ", configOut.Proxy.NtlmUser)
-			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+			// #nosec G115 (CWE-190) -- save
+			fd := int(os.Stdin.Fd())
+			bytePassword, err := term.ReadPassword(fd)
 			if err != nil {
 				logging.Printf("ERROR", "ReadConfig: NTLM Password read error\n")
 				return nil, err
@@ -335,7 +339,9 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 
 		if configOut.Proxy.KerberosUser != "" && configOut.Proxy.KerberosPass == "" && configOut.Proxy.KerberosCache == "" {
 			fmt.Printf("Enter Kerberos Password for %s: ", configOut.Proxy.KerberosUser)
-			bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+			// #nosec G115 (CWE-190) -- save
+			fd := int(os.Stdin.Fd())
+			bytePassword, err := term.ReadPassword(fd)
 			if err != nil {
 				logging.Printf("ERROR", "ReadConfig: Kerberos Password read error\n")
 				return nil, err
@@ -357,7 +363,9 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 
 	if configOut.Proxy.BasicUser != "" && configOut.Proxy.BasicPass == "" {
 		fmt.Printf("Enter Basic Password for %s: ", configOut.Proxy.BasicUser)
-		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+		// #nosec G115 (CWE-190) -- save
+		fd := int(os.Stdin.Fd())
+		bytePassword, err := term.ReadPassword(fd)
 		if err != nil {
 			logging.Printf("ERROR", "ReadConfig: Basic  Password read error\n")
 			return nil, err
@@ -446,12 +454,13 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 				logging.Printf("ERROR", "ReadConfig: Getting file %s: %v\n", configOut.MITM.RulesFile, err)
 				return nil, err
 			}
+			// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
 			file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
 			if err != nil {
 				logging.Printf("ERROR", "ReadConfig: Could not read rules file %s: %v\n", filePath, err)
 				return nil, err
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 
 			decoder := yaml.NewDecoder(file)
 			decoder.KnownFields(true)
@@ -502,12 +511,13 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 			logging.Printf("ERROR", "ReadConfig: Getting file %s: %v\n", configOut.Wireshark.RulesFile, err)
 			return nil, err
 		}
+		// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
 		file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
 		if err != nil {
 			logging.Printf("ERROR", "ReadConfig: Could not read wireshark rules file %s: %v\n", configOut.Wireshark.RulesFile, err)
 			return nil, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		decoder := yaml.NewDecoder(file)
 		decoder.KnownFields(true)
@@ -605,12 +615,13 @@ func ReadConfig(configFilename string, watcher *fsnotify.Watcher) (*Schema, erro
 			logging.Printf("ERROR", "ReadConfig: Getting file %s: %v\n", configOut.WebSocket.RulesFile, err)
 			return nil, err
 		}
+		// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
 		file, err := os.OpenFile(filePath, os.O_RDONLY, 0600)
 		if err != nil {
 			logging.Printf("ERROR", "ReadConfig: Could not read rules file %s: %v\n", filePath, err)
 			return nil, err
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		decoder := yaml.NewDecoder(file)
 		decoder.KnownFields(true)
@@ -710,6 +721,7 @@ func openWithRetry(filename string, flag int, perm os.FileMode) (*os.File, error
 	const ERROR_SHARING_VIOLATION syscall.Errno = 32 // Windows error code
 
 	for i := 1; i <= maxRetries; i++ {
+		// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
 		f, err = os.OpenFile(filename, flag, perm)
 		if err == nil {
 			return f, nil
@@ -788,7 +800,7 @@ func watchFiles(watcher *fsnotify.Watcher, configOut *Schema) {
 				decoder.KnownFields(true)
 				var fileRules []MitmRule
 				err = decoder.Decode(&fileRules)
-				file.Close()
+				_ = file.Close()
 				if err != nil {
 					logging.Printf("ERROR", "watchFiles: Decoding file %s: %v\n", MITMFilePath, err)
 					continue
@@ -830,7 +842,7 @@ func watchFiles(watcher *fsnotify.Watcher, configOut *Schema) {
 				decoder.KnownFields(true)
 				var fileRules []WSRule
 				err = decoder.Decode(&fileRules)
-				file.Close()
+				_ = file.Close()
 				if err != nil {
 					logging.Printf("ERROR", "watchFiles: Decoding file %s: %v\n", WebSocketFilePath, err)
 					continue
@@ -871,7 +883,7 @@ func watchFiles(watcher *fsnotify.Watcher, configOut *Schema) {
 				decoder.KnownFields(true)
 				var fileRules []WiresharkRule
 				err = decoder.Decode(&fileRules)
-				file.Close()
+				_ = file.Close()
 				if err != nil {
 					logging.Printf("ERROR", "watchFiles: Decoding file %s: %v\n", WiresharkFilePath, err)
 					continue

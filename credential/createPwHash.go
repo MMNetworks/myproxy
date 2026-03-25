@@ -4,12 +4,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"golang.org/x/term"
-	"syscall"
+	"os"
 )
 
 func main() {
 	fmt.Print("Enter Password: ")
-	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+	// #nosec G115 (CWE-190) -- save
+	fd := int(os.Stdin.Fd())
+	bytePassword, err := term.ReadPassword(fd)
 	if err != nil {
 		return
 	}

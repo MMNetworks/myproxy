@@ -70,7 +70,7 @@ func humanReadableBitrate(bps float64) string {
 	}
 }
 
-func AccesslogWrite(record AccessLogRecord) (int, error) {
+func AccesslogWrite(record AccessLogRecord) {
 	var accesslogFilename string = "STDOUT"
 	current.Mu.Lock()
 	defer current.Mu.Unlock()
@@ -82,12 +82,11 @@ func AccesslogWrite(record AccessLogRecord) (int, error) {
 
 	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 
-	length, err := osPrintf(accesslogFilename, "ACCESS", "%s", accessLogline)
+	_, _ = osPrintf(accesslogFilename, "ACCESS", "%s", accessLogline)
 
-	return length, err
 }
 
-func AccesslogWriteStart(record AccessLogRecord) (int, error) {
+func AccesslogWriteStart(record AccessLogRecord) {
 	var accesslogFilename string = "STDOUT"
 	current.Mu.Lock()
 	defer current.Mu.Unlock()
@@ -99,7 +98,5 @@ func AccesslogWriteStart(record AccessLogRecord) (int, error) {
 
 	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 
-	length, err := osPrintf(accesslogFilename, "STARTLOG", "%s", accessLogline)
-
-	return length, err
+	_, _ = osPrintf(accesslogFilename, "STARTLOG", "%s", accessLogline)
 }

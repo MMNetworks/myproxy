@@ -63,6 +63,6 @@ func _systemLog(timeStamp string, level string, format string, a ...any) (int, e
 		err = sysLog.Info("UNKNOWN:" + message)
 		length = len("UNKNOWN: " + message)
 	}
-	sysLog.Close()
+	_ = sysLog.Close()
 	return length, err
 }
