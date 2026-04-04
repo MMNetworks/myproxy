@@ -456,7 +456,7 @@ func ensureDot(name string) string {
 
 // Dial implements Dialer with provided resolvers
 func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, error) {
-	var Mu sync.Mutex
+	var mu sync.Mutex
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		logging.Printf("ERROR", "Dial: SessionID:%d Error connecting to address: %s error: %v\n", ctx.SessionNo, address, err)
@@ -555,9 +555,9 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 				} else {
 					logging.Printf("ERROR", "Dial: SessionID:%d Error connecting to address %s error: %v\n", ctx.SessionNo, address, err)
 				}
-				Mu.Lock()
+				mu.Lock()
 				lastErr = err
-				Mu.Unlock()
+				mu.Unlock()
 			}
 		}(ip)
 	}
@@ -576,9 +576,9 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 		}
 	}
 	elapsed = time.Since(start)
-	Mu.Lock()
+	mu.Lock()
 	logging.Printf("ERROR", "Dial: SessionID:%d Connect failed to host: %s ips: %v elapsed time: %v error: %v\n", ctx.SessionNo, host, ips, elapsed, lastErr)
-	Mu.Unlock()
+	mu.Unlock()
 	return nil, errors.New("connect failed to all resolved IPs")
 
 }
