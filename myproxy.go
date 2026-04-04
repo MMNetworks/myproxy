@@ -1,3 +1,4 @@
+// main package for myproxy
 package main
 
 import (

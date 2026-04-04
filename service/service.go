@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// Service is the main entry point split by OS
 func Service(args []string) {
 
 	runProxy(args[:])

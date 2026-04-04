@@ -23,6 +23,7 @@ import (
 
 var svcName = "myproxy"
 
+// Service is the main entry point split by OS
 func Service(args []string) {
 	var err error
 	var action string

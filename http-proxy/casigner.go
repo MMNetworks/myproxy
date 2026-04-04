@@ -37,16 +37,16 @@ func NewCaSigner() *CaSigner {
 }
 
 // NewCaSignerCache returns a new CaSigner with caching given max.
-func NewCaSignerCache(max int) *CaSigner {
+func NewCaSignerCache(maxValue int) *CaSigner {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
-	if max < 0 {
-		max = 0
+	if maxValue < 0 {
+		maxValue = 0
 	}
 	return &CaSigner{
 		certMap:   make(map[string]*tls.Certificate),
-		certList:  make([]string, max),
+		certList:  make([]string, maxValue),
 		certIndex: 0,
-		certMax:   max,
+		certMax:   maxValue,
 	}
 }
 

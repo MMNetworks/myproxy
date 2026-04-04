@@ -1,3 +1,4 @@
+// Package protocol handles Proxy/Websocket/Wireshark protocols
 package protocol
 
 import (
@@ -20,36 +21,38 @@ var (
 	upgradeRespPattern = regexp.MustCompile(`^HTTP/\d\.\d 101 .*\r\n`)
 )
 
+// AnalyseFirstPacket analyses the first request packet
 func AnalyseFirstPacket(SessionNo int64, packet []byte) (string, string) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 
 	name, err := analyseAsTLSPacket(SessionNo, packet)
 	if err == nil {
 		return "TLS", "SNI name: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a TLS packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a TLS packet\n", SessionNo)
+
 	name, err = analyseAsSSHPacket(SessionNo, packet)
 	if err == nil {
 		return "SSH", "Client: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a SSH packet\n", SessionNo)
+
 	name, err = analyseAsUpgradePacket(SessionNo, packet)
 	if err == nil {
 		return "Upgrade", "Protocol: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
+
 	name, err = analyseAsHTTPPacket(SessionNo, packet)
 	if err == nil {
 		return "HTTP", "Client: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
+
 	return "Unknown", ""
 }
 
+// AnalyseFirstPacketResponse analyses the first response packet
 func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), SessionNo)
 	//	name, err := analyseAsTLSPacketResponse(packet)
@@ -61,27 +64,27 @@ func AnalyseFirstPacketResponse(SessionNo int64, packet []byte) (string, string)
 	name, err := analyseAsTLSPacketResponse(SessionNo, packet)
 	if err == nil {
 		return "TLS", "Version: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a TLS packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a TLS packet\n", SessionNo)
+
 	name, err = analyseAsSSHPacketResponse(SessionNo, packet)
 	if err == nil {
 		return "SSH", "Server: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
+
 	name, err = analyseAsFTPPacketResponse(SessionNo, packet)
 	if err == nil {
 		return "FTP", "Server response: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
+
 	name, err = analyseAsUpgradePacketResponse(SessionNo, packet)
 	if err == nil {
 		return "Upgrade", "Protocol: " + name
-	} else {
-		logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseFirstPacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
+
 	return "Unknown", ""
 }
 
@@ -95,9 +98,9 @@ func analyseAsSSHPacket(SessionNo int64, packet []byte) (string, error) {
 			pos = strings.Index(msgString, "\r")
 		}
 		return msgString[:pos], nil
-	} else {
-		logging.Printf("DEBUG", "analyseAsSSHPacket: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseAsSSHPacket: SessionID:%d Not a SSH packet\n", SessionNo)
+
 	return "", errors.New("not a ssh stream")
 }
 
@@ -118,9 +121,9 @@ func analyseAsUpgradePacket(SessionNo int64, packet []byte) (string, error) {
 			pos = strings.Index(msgString[upgradePos:], "\r")
 		}
 		return msgString[upgradePos+lenUpgrade : upgradePos+pos], nil
-	} else {
-		logging.Printf("DEBUG", "analyseAsUpgradePacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseAsUpgradePacket: SessionID:%d Not an Upgrade packet\n", SessionNo)
+
 	return "", errors.New("not an upgrade")
 }
 
@@ -135,9 +138,9 @@ func analyseAsHTTPPacket(SessionNo int64, packet []byte) (string, error) {
 			pos = strings.Index(msgString, "\r")
 		}
 		return msgString[:pos], nil
-	} else {
-		logging.Printf("DEBUG", "analyseAsHTTPPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseAsHTTPPacket: SessionID:%d Not a HTTP packet\n", SessionNo)
+
 	return "", errors.New("not a http stream")
 }
 
@@ -148,14 +151,14 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 	// and https://datatracker.ietf.org/doc/html/rfc6066#section-3 as guidance
 	//
 	// handshake record
-	var recordType uint8 = 0
+	var recordType uint8
 	var handshakeMessage cryptobyte.String
-	var legacyRecordVersion uint16 = 0
-	var recordLength uint16 = 0
+	var legacyRecordVersion uint16
+	var recordLength uint16
 	// Client Hello record
-	var handshakeType uint8 = 0
+	var handshakeType uint8
 	var clientHello cryptobyte.String
-	var legacyVersion uint16 = 0
+	var legacyVersion uint16
 	var random []byte
 	var legacySessionID []byte
 	var ciphersuitesBytes cryptobyte.String
@@ -357,14 +360,14 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	// and https://datatracker.ietf.org/doc/html/rfc6066#section-3 as guidance
 	//
 	// handshake record
-	var recordType uint8 = 0
-	var legacyRecordVersion uint16 = 0
+	var recordType uint8
+	var legacyRecordVersion uint16
 	var handshakeMessage cryptobyte.String
-	var recordLength uint16 = 0
+	var recordLength uint16
 	// Server Hello record
-	var handshakeType uint8 = 0
+	var handshakeType uint8
 	var serverHello cryptobyte.String
-	var legacyVersion uint16 = 0
+	var legacyVersion uint16
 	var random []byte
 	var legacySessionID []byte
 	var ciphersuite uint16
@@ -379,8 +382,8 @@ func analyseAsTLSPacketResponse(SessionNo int64, packet []byte) (string, error) 
 	var sniBytes cryptobyte.String
 	var sniNameType uint8
 	var sniName cryptobyte.String
-	var tlsVersion string = "Unknown"
-	var tlsCipher string = "Unknown"
+	var tlsVersion = "Unknown"
+	var tlsCipher = "Unknown"
 	var rString string
 
 	packetMessage := cryptobyte.String(packet)
@@ -648,9 +651,9 @@ func analyseAsFTPPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			pos = strings.Index(msgString, "\r")
 		}
 		return msgString[:pos], nil
-	} else {
-		logging.Printf("DEBUG", "analyseAsFTPPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseAsFTPPacketResponse: SessionID:%d Not a FTP packet\n", SessionNo)
+
 	return "", errors.New("not a ftp stream")
 }
 
@@ -671,9 +674,9 @@ func analyseAsUpgradePacketResponse(SessionNo int64, packet []byte) (string, err
 			pos = strings.Index(msgString[upgradePos:], "\r")
 		}
 		return msgString[upgradePos+lenUpgrade : upgradePos+pos], nil
-	} else {
-		logging.Printf("DEBUG", "analyseAsUpgradePacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseAsUpgradePacketResponse: SessionID:%d Not an Upgrade packet\n", SessionNo)
+
 	return "", errors.New("not an upgrade")
 }
 
@@ -687,8 +690,8 @@ func analyseAsSSHPacketResponse(SessionNo int64, packet []byte) (string, error) 
 			pos = strings.Index(msgString, "\r")
 		}
 		return msgString[:pos], nil
-	} else {
-		logging.Printf("DEBUG", "analyseAsSSHPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
 	}
+	logging.Printf("DEBUG", "analyseAsSSHPacketResponse: SessionID:%d Not a SSH packet\n", SessionNo)
+
 	return "", errors.New("not a ssh stream")
 }

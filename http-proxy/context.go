@@ -103,6 +103,7 @@ type Context struct {
 	hijTLSReader *bufio.Reader
 }
 
+// GetTCPState interface
 func (ctx *Context) GetTCPState() *protocol.TCPStruct {
 	return ctx.TCPState
 }
@@ -697,21 +698,20 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 				ctx.AccessLog.BytesOUT = 0
 				logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 				return b, err
-			} else {
-				// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
-				respHeader.Set("Content-Type", "application/octet-stream")
-				respCode = 200
-				ctx.AccessLog.Status = "200 OK"
-				ctx.AccessLog.Endtime = time.Now()
-				ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
-				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-				ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete.")+2)
-				ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT + int64(len(ioBuf))
-				logging.AccesslogWrite(ctx.AccessLog)
-				ctx.AccessLog.Starttime = time.Now()
-				ctx.AccessLog.BytesIN = 0
-				ctx.AccessLog.BytesOUT = 0
 			}
+			// logging.Printf("DEBUG", "doFtp: SessionID:%d Content: %s\n", ctx.SessionNo, buf)
+			respHeader.Set("Content-Type", "application/octet-stream")
+			respCode = 200
+			ctx.AccessLog.Status = "200 OK"
+			ctx.AccessLog.Endtime = time.Now()
+			ctx.AccessLog.Duration = ctx.AccessLog.Endtime.Sub(ctx.AccessLog.Starttime)
+			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+			ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(len("226 Transfer complete.")+2)
+			ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT + int64(len(ioBuf))
+			logging.AccesslogWrite(ctx.AccessLog)
+			ctx.AccessLog.Starttime = time.Now()
+			ctx.AccessLog.BytesIN = 0
+			ctx.AccessLog.BytesOUT = 0
 		} else {
 			logging.Printf("DEBUG", "doFtp: SessionID:%d Retrieving File/Dir Listing: \n", ctx.SessionNo)
 			path := CleanUntrustedString(ctx, "URL Path", r.URL.Path)
@@ -738,40 +738,39 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 						ctx.AccessLog.BytesOUT = 0
 						logging.Printf("DEBUG", "doFtp: SessionID:%d Connection closed.\n", ctx.SessionNo)
 						return b, err
-					} else {
-						// Check if path starts with /
-						path = strings.TrimPrefix(path, "/")
-						logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
-						logging.Printf("DEBUG", "doFtp: SessionID:%d FTP Directory Listing: ftp://%s/%s\n", ctx.SessionNo, host, path)
-						logging.Printf("DEBUG", "doFtp: SessionID:%d Parent Directory: ftp://%s/%s\n", ctx.SessionNo, host, filepath.Dir(path))
-						// Write the response body
-						fmt.Fprintf(buf, "Directory Listing: \n")
-						fmt.Fprintf(buf, "FTP Directory Listing: ftp://%s/%s\n", host, path)
-						fmt.Fprintf(buf, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
-						for _, file := range files {
-							if file.IsDir() {
-								logging.Printf("DEBUG", "doFtp: SessionID:%d %s dir %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), file.Name())
-								n, err := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
-								if err != nil {
-									logging.Printf("ERROR", "doFtp: SessionID:%d Error writing directory entry: %v\n", ctx.SessionNo, err)
-								}
-								ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
-							} else {
-								readableSize := formatSize(file.Size())
-								logging.Printf("DEBUG", "doFtp: SessionID:%d %s %s %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), readableSize, file.Name())
-								n, err := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
-								if err != nil {
-									logging.Printf("ERROR", "doFtp: SessionID:%d Error writing file entry: %v\n", ctx.SessionNo, err)
-								}
-								ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
-							}
-						}
-						respCode = 200
-						respHeader.Set("Content-Type", "text/plain")
-						ctx.AccessLog.Status = "200 OK"
-						ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
-						ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 					}
+					// Check if path starts with /
+					path = strings.TrimPrefix(path, "/")
+					logging.Printf("DEBUG", "doFtp: SessionID:%d Directory Listing: \n", ctx.SessionNo)
+					logging.Printf("DEBUG", "doFtp: SessionID:%d FTP Directory Listing: ftp://%s/%s\n", ctx.SessionNo, host, path)
+					logging.Printf("DEBUG", "doFtp: SessionID:%d Parent Directory: ftp://%s/%s\n", ctx.SessionNo, host, filepath.Dir(path))
+					// Write the response body
+					fmt.Fprintf(buf, "Directory Listing: \n")
+					fmt.Fprintf(buf, "FTP Directory Listing: ftp://%s/%s\n", host, path)
+					fmt.Fprintf(buf, "Parent Directory: ftp://%s/%s\n", host, filepath.Dir(path))
+					for _, file := range files {
+						if file.IsDir() {
+							logging.Printf("DEBUG", "doFtp: SessionID:%d %s dir %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), file.Name())
+							n, err := fmt.Fprintf(buf, "%s dir %s\n", file.ModTime().Format(time.UnixDate), file.Name())
+							if err != nil {
+								logging.Printf("ERROR", "doFtp: SessionID:%d Error writing directory entry: %v\n", ctx.SessionNo, err)
+							}
+							ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+						} else {
+							readableSize := formatSize(file.Size())
+							logging.Printf("DEBUG", "doFtp: SessionID:%d %s %s %s\n", ctx.SessionNo, file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+							n, err := fmt.Fprintf(buf, "%s %s %s\n", file.ModTime().Format(time.UnixDate), readableSize, file.Name())
+							if err != nil {
+								logging.Printf("ERROR", "doFtp: SessionID:%d Error writing file entry: %v\n", ctx.SessionNo, err)
+							}
+							ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + int64(n)
+						}
+					}
+					respCode = 200
+					respHeader.Set("Content-Type", "text/plain")
+					ctx.AccessLog.Status = "200 OK"
+					ctx.AccessLog.BytesIN = ctx.AccessLog.BytesIN + ftpBytesCounter.totalBytesIN
+					ctx.AccessLog.BytesOUT = ctx.AccessLog.BytesOUT + ftpBytesCounter.totalBytesOUT
 				} else {
 					ctx.doError("Ftp", ErrRemoteConnect, err)
 					ctx.AccessLog.Status = "500 " + err.Error()
@@ -1017,8 +1016,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			// Proxy Dial sets status if a proxy is used
 			ctx.AccessLog.Status = "200 OK"
 		}
-		var FirstPacket bool = true
-		var FirstPacketResponse bool = true
+		var FirstPacket = true
+		var FirstPacketResponse = true
 		var wg sync.WaitGroup
 
 		wg.Add(2)
@@ -1114,8 +1113,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			for {
 				var err error
 				var n int
-				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
-				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				buf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
 				if ctx.WebsocketState.Websocket {
 					n, err = protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
@@ -1151,7 +1150,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					dst := ctx.AccessLog.ProxyIP
 					src := ctx.AccessLog.SourceIP
-					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+					if readconfig.Config.Wireshark.UnmaskedWebsocket {
 						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, buf[:n])
 					} else {
 						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, mbuf[:n])
@@ -1276,8 +1275,8 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			for {
 				var err error
 				var n int
-				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
-				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				buf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
 				if ctx.WebsocketState.Websocket {
 					n, err = protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				} else {
@@ -1313,7 +1312,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 					}
 					src := ctx.AccessLog.ProxyIP
 					dst := ctx.AccessLog.SourceIP
-					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+					if readconfig.Config.Wireshark.UnmaskedWebsocket {
 						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, buf[:n])
 					} else {
 						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, mbuf[:n])
@@ -1351,7 +1350,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		ctx.AccessLog.BytesIN = 0
 		ctx.AccessLog.BytesOUT = 0
 	case ConnectMitm:
-		tlsConfig := &tls.Config{}
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 		cert := ctx.Prx.signer.SignHost(host)
 		if cert == nil {
 			_ = hijConn.Close()
@@ -1432,10 +1431,10 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 		// Not anymore HTTP Request / Response
 		hijConn := ctx.hijTLSConn
 		remoteConn := ctx.WebsocketState.WebsocketConn
-		var hijRead bool = true
-		var hijWrite bool = true
-		var remoteRead bool = true
-		var remoteWrite bool = true
+		var hijRead = true
+		var hijWrite = true
+		var remoteRead = true
+		var remoteWrite = true
 
 		var wg sync.WaitGroup
 		wg.Add(2)
@@ -1465,8 +1464,8 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			//
 
 			for {
-				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
-				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				buf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
 				n, err := protocol.WebsocketRead(true, hijConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				if err != nil {
 					if err == io.EOF {
@@ -1501,7 +1500,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 
 					dst := ctx.AccessLog.ProxyIP
 					src := ctx.AccessLog.SourceIP
-					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+					if readconfig.Config.Wireshark.UnmaskedWebsocket {
 						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, buf[:n])
 					} else {
 						err = protocol.WriteWireshark(ctx, true, ctx.SessionNo, src, dst, mbuf[:n])
@@ -1552,8 +1551,8 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 			//
 
 			for {
-				buf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
-				mbuf := make([]byte, readconfig.Config.WebSocket.MaxPayloadLength+14)
+				buf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
+				mbuf := make([]byte, readconfig.Config.Websocket.MaxPayloadLength+14)
 				n, err := protocol.WebsocketRead(false, remoteConn, ctx.ReadTimeout, ctx.SessionNo, buf, mbuf)
 				if err != nil {
 					if err == io.EOF {
@@ -1588,7 +1587,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 
 					src := ctx.AccessLog.ProxyIP
 					dst := ctx.AccessLog.SourceIP
-					if readconfig.Config.Wireshark.UnmaskedWebSocket {
+					if readconfig.Config.Wireshark.UnmaskedWebsocket {
 						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, buf[:n])
 					} else {
 						err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, mbuf[:n])
@@ -1648,7 +1647,7 @@ func (ctx *Context) doMitm() (w http.ResponseWriter, r *http.Request) {
 		r = req
 		ctx.AccessLog.Method = CleanUntrustedString(ctx, "Method", r.Method)
 		ctx.AccessLog.Scheme = CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
-		ctx.AccessLog.Url = CleanUntrustedString(ctx, "URL Redacted", r.URL.Redacted())
+		ctx.AccessLog.URL = CleanUntrustedString(ctx, "URL Redacted", r.URL.Redacted())
 		ctx.AccessLog.Version = CleanUntrustedString(ctx, "Proto", r.Proto)
 	}
 	return
@@ -1814,7 +1813,7 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 			logging.Printf("DEBUG", "doResponse: SessionID:%d Setup TLS connection to %s\n", ctx.SessionNo, serverName)
 			tlsConf := ctx.TLSConfig
 			if tlsConf == nil {
-				tlsConf = &tls.Config{}
+				tlsConf = &tls.Config{MinVersion: tls.VersionTLS12}
 			}
 			if tlsConf.ServerName == "" {
 				clone := tlsConf.Clone()
@@ -1836,19 +1835,19 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			logging.Printf("ERROR", "doResponse: SessionID:%d Connection to host %s failed: %v\n", ctx.SessionNo, host, err)
 			return err
-		} else {
-			logging.Printf("DEBUG", "doResponse: SessionID:%d Connection to host %s succeded\n", ctx.SessionNo, host)
-			err1 := r.Write(ctx.WebsocketState.WebsocketConn)
-			if err1 != nil {
-				logging.Printf("ERROR", "doResponse: SessionID:%d Could not send request to host: %v\n", ctx.SessionNo, err)
-			}
-			reader := bufio.NewReader(ctx.WebsocketState.WebsocketConn)
-			resp, err = http.ReadResponse(reader, r)
-			if err != nil {
-				logging.Printf("ERROR", "doResponse: SessionID:%d Could not read response from  host: %v\n", ctx.SessionNo, err)
-				return err
-			}
 		}
+		logging.Printf("DEBUG", "doResponse: SessionID:%d Connection to host %s succeded\n", ctx.SessionNo, host)
+		err1 := r.Write(ctx.WebsocketState.WebsocketConn)
+		if err1 != nil {
+			logging.Printf("ERROR", "doResponse: SessionID:%d Could not send request to host: %v\n", ctx.SessionNo, err)
+		}
+		reader := bufio.NewReader(ctx.WebsocketState.WebsocketConn)
+		resp, err = http.ReadResponse(reader, r)
+		if err != nil {
+			logging.Printf("ERROR", "doResponse: SessionID:%d Could not read response from  host: %v\n", ctx.SessionNo, err)
+			return err
+		}
+
 		logging.Printf("INFO", "doResponse: SessionID:%d Server accepted websocket upgrade: Upgrade to websocket\n", ctx.SessionNo)
 		ctx.WebsocketState.Websocket = true
 		ctx.Prx.MitmChunked = false

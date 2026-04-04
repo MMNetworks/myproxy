@@ -7,7 +7,7 @@ import (
 	"log/syslog"
 )
 
-func _systemLog(timeStamp string, level string, format string, a ...any) (int, error) {
+func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 	var length int
 	var err error
 

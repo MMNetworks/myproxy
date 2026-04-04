@@ -34,25 +34,8 @@ func secureRandomUint32() uint32 {
 	return binary.BigEndian.Uint32(b[:])
 }
 
-// Use Mutex for connection status check
-type MyMutex struct {
-	mu sync.Mutex
-}
-
-func (m *MyMutex) Lock() {
-	//logging.Printf("DEBUG", "MyMutex: SessionID:%d Locking...\n", -1 )
-	m.mu.Lock()
-	//logging.Printf("DEBUG", "MyMutex: SessionID:%d Locked\n", -1 )
-}
-
-func (m *MyMutex) Unlock() {
-	//logging.Printf("DEBUG", "MyMutex: SessionID:%d Unlocking...\n", -1 )
-	m.mu.Unlock()
-	//logging.Printf("DEBUG", "MyMutex: SessionID:%d Unlocked\n", -1 )
-}
-
 type safeStatus struct {
-	mu     MyMutex
+	mu     sync.Mutex
 	active bool
 }
 
@@ -64,7 +47,7 @@ var pcapWriter *pcapgo.Writer
 
 var tcpMutex sync.Mutex
 
-// track Session Sequence numbers and request state
+// TCPStruct track Session Sequence numbers and request state
 // for Wireshark export
 type TCPStruct struct {
 	tcpSequence    uint32
@@ -93,13 +76,13 @@ func processor() {
 	}
 }
 
-// attach tcp Struct to request context
+// TCPState attach tcp Struct to request context
 // avoid import loop by using interface
 type TCPState interface {
 	GetTCPState() *TCPStruct
 }
 
-// Listen on given IP & Port
+// ListenWireshark listen on given IP & Port
 func ListenWireshark(listen string) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), 0)
 	listener, err := net.Listen("tcp", listen)
@@ -261,6 +244,7 @@ func acceptWireshark(listener net.Listener) {
 	}
 }
 
+// WriteWireshark Write packets to Wireshark app
 func WriteWireshark(tcp TCPState, isRequest bool, sessionNo int64, src string, dst string, data []byte) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
 

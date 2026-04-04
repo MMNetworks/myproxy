@@ -1,3 +1,4 @@
+// Package upstream handles upstream proxy connections
 package upstream
 
 import (
@@ -33,23 +34,24 @@ func c2s(conn net.Conn) string {
 }
 
 // secureRandomInt generates a cryptographically secure random integer in the range [0, max)
-func secureRandomInt(max int) (int, error) {
-	if max <= 0 {
+func secureRandomInt(maxValue int) (int, error) {
+	if maxValue <= 0 {
 		return 0, fmt.Errorf("max must be positive")
 	}
-	nBig, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	nBig, err := rand.Int(rand.Reader, big.NewInt(int64(maxValue)))
 	if err != nil {
 		return 0, err
 	}
 	return int(nBig.Int64()), nil
 }
 
-type ProxyRoundTripper struct {
+type proxyRoundTripper struct {
 	GetContext func() *httpproxy.Context
 	proxyMutex sync.Mutex
 }
 
-func (pR *ProxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+// RoundTrip process http request via upstream proxy
+func (pR *proxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := pR.GetContext()
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 
@@ -83,7 +85,7 @@ func (pR *ProxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 				logging.Printf("DEBUG", "proxyRoundTrip: SessionID:%d Setup TLS connection to %s\n", ctx.SessionNo, serverName)
 				tlsConf := ctx.TLSConfig
 				if tlsConf == nil {
-					tlsConf = &tls.Config{}
+					tlsConf = &tls.Config{MinVersion: tls.VersionTLS12}
 				}
 				if tlsConf.ServerName == "" {
 					clone := tlsConf.Clone()
@@ -108,90 +110,89 @@ func (pR *ProxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 			}
 			return http.ReadResponse(bufio.NewReader(conn), req)
 
-		} else {
-			conn, err := httpproxy.NetDial(ctx, "tcp", proxy)
-			logging.Printf("DEBUG", "proxyRoundTrip: SessionID:%d Connection details after NetDial: %v\n", ctx.SessionNo, c2s(conn))
-			ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
-			ctx.AccessLog.DestinationIP = ""
-			// godump.Dump(ctx.Rt)
-			if err != nil {
-				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error connecting to proxy %s: %v\n", ctx.SessionNo, proxy, err)
-				return nil, err
-			}
-			if tS == "ftp" {
-				if !httpproxy.HasPort.MatchString(host) {
-					host += ":21"
-				}
-				tU := httpproxy.CleanUntrustedString(ctx, "URL string", req.URL.String())
-				_, err := fmt.Fprintf(conn, "%s %s HTTP/1.1\r\n", tM, tU)
-				if err != nil {
-					logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
-					return nil, err
-				}
-				_, err = fmt.Fprintf(conn, "Host: %s\r\n", host)
-				if err != nil {
-					logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
-					return nil, err
-				}
-				_, err = fmt.Fprintf(conn, "Proxy-Connection: Keep-Alive\r\n")
-				if err != nil {
-					logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
-					return nil, err
-				}
-				for k, v := range req.Header {
-					tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
-					if tK != "Host" && tK != "Proxy-Connection" {
-						for i := 0; i < len(v); i++ {
-							tV := httpproxy.CleanUntrustedString(ctx, "Header Value", v[i])
-							_, err := fmt.Fprintf(conn, "%s: %s\r\n", tK, tV)
-							if err != nil {
-								logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
-								return nil, err
-							}
-						}
-						logging.Printf("DEBUG", "proxyRoundTripper: SessionID:%d Add original header to proxy connection: %s=%s\n", ctx.SessionNo, k, v)
-					}
-				}
-				_, err = fmt.Fprintf(conn, "\r\n")
-				if err != nil {
-					logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
-					return nil, err
-				}
-			} else {
-				if err := req.WriteProxy(conn); err != nil {
-					logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to proxy %s: %v\n", ctx.SessionNo, proxy, err)
-					return nil, err
-				}
-			}
-			resp, err := http.ReadResponse(bufio.NewReader(conn), req)
-			if err != nil {
-				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error reading response from proxy %s: %v\n", ctx.SessionNo, proxy, err)
-				return nil, err
-			}
-
-			ctx.AccessLog.Status = httpproxy.CleanUntrustedString(ctx, "Status", resp.Status)
-			if resp.StatusCode == http.StatusProxyAuthRequired {
-				_, err = io.ReadAll(resp.Body)
-				if err != nil {
-					logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Could not read response body from proxy response: %v\n", ctx.SessionNo, err)
-					return nil, err
-				}
-				defer func() { _ = resp.Body.Close() }()
-
-				ctx.UpstreamConn = conn
-				req.Header.Add("Proxy-Connection", "Keep-Alive")
-				authenticate.DoProxyAuth(ctx, req, resp)
-			}
-			ctx.AccessLog.Status = httpproxy.CleanUntrustedString(ctx, "Status", resp.Status)
-			ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
-			ctx.AccessLog.DestinationIP = ""
-			return resp, nil
-
 		}
+		conn, err := httpproxy.NetDial(ctx, "tcp", proxy)
+		logging.Printf("DEBUG", "proxyRoundTrip: SessionID:%d Connection details after NetDial: %v\n", ctx.SessionNo, c2s(conn))
+		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
+		ctx.AccessLog.DestinationIP = ""
+		// godump.Dump(ctx.Rt)
+		if err != nil {
+			logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error connecting to proxy %s: %v\n", ctx.SessionNo, proxy, err)
+			return nil, err
+		}
+		if tS == "ftp" {
+			if !httpproxy.HasPort.MatchString(host) {
+				host += ":21"
+			}
+			tU := httpproxy.CleanUntrustedString(ctx, "URL string", req.URL.String())
+			_, err := fmt.Fprintf(conn, "%s %s HTTP/1.1\r\n", tM, tU)
+			if err != nil {
+				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
+				return nil, err
+			}
+			_, err = fmt.Fprintf(conn, "Host: %s\r\n", host)
+			if err != nil {
+				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
+				return nil, err
+			}
+			_, err = fmt.Fprintf(conn, "Proxy-Connection: Keep-Alive\r\n")
+			if err != nil {
+				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
+				return nil, err
+			}
+			for k, v := range req.Header {
+				tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
+				if tK != "Host" && tK != "Proxy-Connection" {
+					for i := 0; i < len(v); i++ {
+						tV := httpproxy.CleanUntrustedString(ctx, "Header Value", v[i])
+						_, err := fmt.Fprintf(conn, "%s: %s\r\n", tK, tV)
+						if err != nil {
+							logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
+							return nil, err
+						}
+					}
+					logging.Printf("DEBUG", "proxyRoundTripper: SessionID:%d Add original header to proxy connection: %s=%s\n", ctx.SessionNo, k, v)
+				}
+			}
+			_, err = fmt.Fprintf(conn, "\r\n")
+			if err != nil {
+				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to connection %v: %v\n", ctx.SessionNo, c2s(conn), err)
+				return nil, err
+			}
+		} else {
+			if err := req.WriteProxy(conn); err != nil {
+				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error writing to proxy %s: %v\n", ctx.SessionNo, proxy, err)
+				return nil, err
+			}
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(conn), req)
+		if err != nil {
+			logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Error reading response from proxy %s: %v\n", ctx.SessionNo, proxy, err)
+			return nil, err
+		}
+
+		ctx.AccessLog.Status = httpproxy.CleanUntrustedString(ctx, "Status", resp.Status)
+		if resp.StatusCode == http.StatusProxyAuthRequired {
+			_, err = io.ReadAll(resp.Body)
+			if err != nil {
+				logging.Printf("ERROR", "proxyRoundTripper: SessionID:%d Could not read response body from proxy response: %v\n", ctx.SessionNo, err)
+				return nil, err
+			}
+			defer func() { _ = resp.Body.Close() }()
+
+			ctx.UpstreamConn = conn
+			req.Header.Add("Proxy-Connection", "Keep-Alive")
+			authenticate.DoProxyAuth(ctx, req, resp)
+		}
+		ctx.AccessLog.Status = httpproxy.CleanUntrustedString(ctx, "Status", resp.Status)
+		ctx.AccessLog.UpstreamProxyIP = conn.RemoteAddr().String()
+		ctx.AccessLog.DestinationIP = ""
+		return resp, nil
 	}
 	return nil, nil
 }
 
+// SetProxy sets the upstream proxy for the session
 func SetProxy(ctx *httpproxy.Context, proxyName string) {
 	if proxyName != "" {
 		proxyStr := "http://" + proxyName
@@ -202,7 +203,7 @@ func SetProxy(ctx *httpproxy.Context, proxyName string) {
 		ctx.UpstreamProxy = proxyName
 
 		// proxy RT to deal with https and http requests
-		ctx.Rt = &ProxyRoundTripper{
+		ctx.Rt = &proxyRoundTripper{
 			GetContext: func() *httpproxy.Context {
 				return ctx
 			},
@@ -214,16 +215,17 @@ func SetProxy(ctx *httpproxy.Context, proxyName string) {
 	}
 }
 
+// GetProxy gets the upstream proxy for the session
 func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 
-	var upstreamProxy string = ""
+	var upstreamProxy string
 	var err error
 	var buf []byte
-	var cacheTime time.Duration = 3600 * time.Second
+	var cacheTime = 3600 * time.Second
 	var transport *http.Transport
-	var proxyFQDN string = ""
-	var proxyPort string = "3128"
+	var proxyFQDN string
+	var proxyPort = "3128"
 
 	u, err := url.Parse(URL)
 	if err != nil {
@@ -342,7 +344,7 @@ func GetProxy(ctx *httpproxy.Context, URL string) (string, error) {
 		// Loop over proxy list
 		if len(ProxyList) > 1 {
 			proxyOKList := make([]string, len(ProxyList))
-			var proxyOKCount int = -1
+			var proxyOKCount = -1
 			for i, v := range ProxyList {
 				logging.Printf("DEBUG", "SetProxy: SessionID:%d Proxy list index: %d type: %s address: %s\n", ctx.SessionNo, i+1, v.Type, v.Address)
 				if strings.ToUpper(v.Type) == "DIRECT" {

@@ -6,7 +6,6 @@ import (
 	"codeberg.org/miekg/dns/rdata"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"myproxy/logging"
 	"myproxy/protocol"
@@ -131,7 +130,8 @@ func NewProxyCert(caCert, caKey []byte) (*Proxy, error) {
 	return prx, nil
 }
 
-func NetDial(ctx *Context, network, address string) (net.Conn, error) {
+// NetDial returns a connection
+func NetDial(ctx *Context, _, address string) (net.Conn, error) {
 	logging.Printf("TRACE", "%s: called\n", logging.GetFunctionName())
 
 	var dnsTimeOut time.Duration = time.Duration(readconfig.Config.Connection.DNSTimeout)
@@ -198,7 +198,7 @@ func (pd *proxyDialer) queryResolvers(ctx *Context, name string) ([]string, stri
 	for _, r := range pd.resolvers {
 		resolver := r
 		go func() {
-			ips, err := pd.queryResolver(ctx, ctxResolvers, resolver, name)
+			ips, err := pd.queryResolver(ctxResolvers, ctx, resolver, name)
 			select {
 			case ch <- res{ips, resolver, err}:
 			case <-ctxResolvers.Done():
@@ -229,12 +229,12 @@ func (pd *proxyDialer) queryResolvers(ctx *Context, name string) ([]string, stri
 	return nil, "all", firstErr
 }
 
-func (pd *proxyDialer) queryResolver(ctx *Context, ctxResolvers context.Context, resolver, name string) ([]string, error) {
+func (pd *proxyDialer) queryResolver(ctxResolvers context.Context, ctx *Context, resolver, name string) ([]string, error) {
 	var ips []string
 
 	// Resolve AAAA and A records
-	ipsv6, err1 := pd.queryRecord(ctx, ctxResolvers, resolver, name, dns.TypeAAAA)
-	ipsv4, err2 := pd.queryRecord(ctx, ctxResolvers, resolver, name, dns.TypeA)
+	ipsv6, err1 := pd.queryRecord(ctxResolvers, ctx, resolver, name, dns.TypeAAAA)
+	ipsv4, err2 := pd.queryRecord(ctxResolvers, ctx, resolver, name, dns.TypeA)
 
 	if err1 != nil && errors.Is(err1, context.Canceled) && errors.Is(err1, context.DeadlineExceeded) {
 		logging.Printf("ERROR", "queryResolver: SessionID:%d No AAAA answers from %s error: %v\n", ctx.SessionNo, resolver, err1)
@@ -246,10 +246,9 @@ func (pd *proxyDialer) queryResolver(ctx *Context, ctxResolvers context.Context,
 		if errors.Is(err1, context.Canceled) && errors.Is(err1, context.DeadlineExceeded) && errors.Is(err2, context.Canceled) && errors.Is(err2, context.DeadlineExceeded) {
 			logging.Printf("ERROR", "queryResolver: SessionID:%d No A/AAAA answers from %s\n", ctx.SessionNo, resolver)
 			return nil, errors.New("no A/AAAA answer")
-		} else {
-			logging.Printf("DEBUG", "queryResolver: SessionID:%d No AAAA answers from %s error: context was canceled\n", ctx.SessionNo, resolver)
-			return nil, context.Canceled
 		}
+		logging.Printf("DEBUG", "queryResolver: SessionID:%d No AAAA answers from %s error: context was canceled\n", ctx.SessionNo, resolver)
+		return nil, context.Canceled
 	}
 	if len(ipsv6) == 0 && len(ipsv4) == 0 {
 		logging.Printf("ERROR", "queryResolver: SessionID:%d No A/AAAA answers from %s error: empty answers\n", ctx.SessionNo, resolver)
@@ -262,7 +261,7 @@ func (pd *proxyDialer) queryResolver(ctx *Context, ctxResolvers context.Context,
 	return ips, nil
 }
 
-func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, resolver, name string, qtype uint16) ([]string, error) {
+func (pd *proxyDialer) queryRecord(ctxResolvers context.Context, ctx *Context, resolver, name string, qtype uint16) ([]string, error) {
 	var network string
 	var address string
 	var client *dns.Client
@@ -290,42 +289,18 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 			return nil, err
 		}
 		u.Path = ""
-		var TLSConfig *tls.Config
-		if readconfig.Config.Connection.CAfile != "" {
-			caCertPool := x509.NewCertPool()
-			if readconfig.Config.Connection.CAfile != "insecure" {
-				caCert, err := os.ReadFile(readconfig.Config.Connection.CAfile)
-				if err != nil {
-					logging.Printf("ERROR", "queryRecord: SessionID:%d Could not read CA bundle %s: %v\n", ctx.SessionNo, readconfig.Config.Connection.CAfile, err)
-					return nil, err
-				}
-				caCertPool.AppendCertsFromPEM(caCert)
-				TLSConfig = &tls.Config{
-					ClientCAs: caCertPool,
-				}
-			} else {
-				logging.Printf("WARNING", "queryRecord: SessionID:%d DoH TLS certificate verification DISABLED for %s - vulnerable to MITM attacks!\n", ctx.SessionNo, resolver)
-				// #nosec G402 -- intentionally disabled
-				TLSConfig = &tls.Config{
-					ClientCAs:          caCertPool,
-					InsecureSkipVerify: true, // Skip certificate verification
-				}
-			}
-		} else {
-			// Default TLS config
-			TLSConfig = &tls.Config{}
-		}
+		tlsConfig := readconfig.Config.Connection.TLSConf.Clone()
 		host := u.Hostname()
 		if net.ParseIP(host) == nil {
-			TLSConfig.ServerName = host
+			tlsConfig.ServerName = host
 		}
-		TLSConfig.NextProtos = []string{"h2", "http/1.1"}
+		tlsConfig.NextProtos = []string{"h2", "http/1.1"}
 
 		// Check if DoH request goes via upstream proxy
 		proxyURL := ctx.Prx.DoHProxyList[resolver]
 		if proxyURL == "" {
 			var transport = &http.Transport{
-				TLSClientConfig:       TLSConfig,
+				TLSClientConfig:       tlsConfig,
 				ForceAttemptHTTP2:     true,
 				MaxIdleConns:          100,
 				ResponseHeaderTimeout: 3 * time.Second,
@@ -388,37 +363,13 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 				return nil, errors.New("invalid dns over tcp  resolver")
 			}
 
-			var TLSConfig *tls.Config
-			if readconfig.Config.Connection.CAfile != "" {
-				caCertPool := x509.NewCertPool()
-				if readconfig.Config.Connection.CAfile != "insecure" {
-					caCert, err := os.ReadFile(readconfig.Config.Connection.CAfile)
-					if err != nil {
-						logging.Printf("ERROR", "queryRecord: SessionID:%d Could not read CA bundle %s: %v\n", ctx.SessionNo, readconfig.Config.Connection.CAfile, err)
-						return nil, err
-					}
-					caCertPool.AppendCertsFromPEM(caCert)
-					TLSConfig = &tls.Config{
-						ClientCAs: caCertPool,
-					}
-				} else {
-					logging.Printf("WARNING", "queryRecord: SessionID:%d DoT TLS certificate verification DISABLED for %s - vulnerable to MITM attacks!\n", ctx.SessionNo, resolver)
-					// #nosec G402 -- intentionally disabled
-					TLSConfig = &tls.Config{
-						ClientCAs:          caCertPool,
-						InsecureSkipVerify: true, // Skip certificate verification
-					}
-				}
-			} else {
-				// Default TLS config
-				TLSConfig = &tls.Config{}
-			}
+			tlsConfig := readconfig.Config.Connection.TLSConf.Clone()
 			if net.ParseIP(host) == nil {
-				TLSConfig.ServerName = host
+				tlsConfig.ServerName = host
 			}
-			TLSConfig.NextProtos = []string{"dot"}
+			tlsConfig.NextProtos = []string{"dot"}
 			transport := dns.NewTransport()
-			transport.TLSConfig = TLSConfig
+			transport.TLSConfig = tlsConfig
 			transport.ReadTimeout = pd.dnsTimeout
 			transport.WriteTimeout = pd.dnsTimeout
 			client = dns.NewClient()
@@ -445,14 +396,14 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				logging.Printf("DEBUG", "queryRecord: SessionID:%d Resolver %s error: context was canceled for %s record\n", ctx.SessionNo, resolver, dns.TypeToString[qtype])
 				return nil, ctxResolvers.Err()
-			} else {
-				if r == nil {
-					logging.Printf("ERROR", "queryRecord: SessionID:%d exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
-					return nil, errors.New("exchange failed")
-				} else if !r.Truncated {
-					logging.Printf("ERROR", "queryRecord: SessionID:%d exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
-					return nil, errors.New("exchange failed")
-				}
+			}
+			if r == nil {
+				logging.Printf("ERROR", "queryRecord: SessionID:%d exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
+				return nil, errors.New("exchange failed")
+			}
+			if !r.Truncated {
+				logging.Printf("ERROR", "queryRecord: SessionID:%d exchange failed from %s for %s error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], err)
+				return nil, errors.New("exchange failed")
 			}
 		}
 		elapsed := time.Since(start)
@@ -467,10 +418,9 @@ func (pd *proxyDialer) queryRecord(ctx *Context, ctxResolvers context.Context, r
 				if err == context.Canceled || err == context.DeadlineExceeded {
 					logging.Printf("DEBUG", "queryRecord: SessionID:%d Resolver %s error: tcp context was canceled for %s record\n", ctx.SessionNo, resolver, dns.TypeToString[qtype])
 					return nil, ctxResolvers.Err()
-				} else {
-					logging.Printf("ERROR", "queryRecord: SessionID:%d tcp exchange failed after truncation from %s for %s elapsed time: %v  error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed, err)
-					return nil, errors.New("tcp exchange failed after truncation")
 				}
+				logging.Printf("ERROR", "queryRecord: SessionID:%d tcp exchange failed after truncation from %s for %s elapsed time: %v  error: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed, err)
+				return nil, errors.New("tcp exchange failed after truncation")
 			}
 		}
 		logging.Printf("DEBUG", "queryRecord: SessionID:%d Successful response from %s for %s elapsed time: %v\n", ctx.SessionNo, resolver, dns.TypeToString[qtype], elapsed)
@@ -541,7 +491,7 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 	var wg sync.WaitGroup
 	result := make(chan net.Conn, 1)
 
-	var haveIPv6IP bool = false
+	var haveIPv6IP = false
 	for _, ipStr := range ips {
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
@@ -633,6 +583,7 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 
 }
 
+// CleanUntrustedString removes non printable characters
 func CleanUntrustedString(ctx *Context, key string, s string) string {
 	var b strings.Builder
 	var logged bool
@@ -730,8 +681,8 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	// Set default with NetDial
-	ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{},
-		DialContext: func(dctx context.Context, network, addr string) (net.Conn, error) {
+	ctx.Rt = &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
+		DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
 			return NetDial(ctx, network, addr)
 		},
 		Dial: func(network, addr string) (net.Conn, error) {
@@ -754,7 +705,7 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx.AccessLog.UpstreamProxyIP = ""
 	ctx.AccessLog.Method = CleanUntrustedString(ctx, "Method", r.Method)
 	ctx.AccessLog.Scheme = CleanUntrustedString(ctx, "Scheme", r.URL.Scheme)
-	ctx.AccessLog.Url = CleanUntrustedString(ctx, "URL", r.URL.Redacted())
+	ctx.AccessLog.URL = CleanUntrustedString(ctx, "URL", r.URL.Redacted())
 	ctx.AccessLog.Version = CleanUntrustedString(ctx, "Protocol", r.Proto)
 	ctx.AccessLog.Status = ""
 	ctx.AccessLog.BytesIN = 0

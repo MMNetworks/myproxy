@@ -1,9 +1,9 @@
+// Package viruscheck handles communicaton with clamd daemon
 package viruscheck
 
 import (
 	"bytes"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -13,11 +13,11 @@ import (
 	"myproxy/readconfig"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
 
+// ClamdStruct for secure clamd communication
 type ClamdStruct struct {
 	clamd  *clamd.Clamd // embedded, so you can call methods directly
 	https  bool
@@ -35,6 +35,7 @@ type clamdResponseData struct {
 	Status  string `json:"status"`
 }
 
+// SetupClamd setups initial Clamd connection
 func SetupClamd(connection string) (*ClamdStruct, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), 0)
 	var clamdStruct *ClamdStruct
@@ -61,19 +62,10 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 		}
 		serverAddr := readconfig.Config.Clamd.Connection[start : end-1]
 
-		var rootCAs *x509.CertPool
-		if readconfig.Config.Clamd.CAfile != "insecure" {
-			// Load system roots + optional CA bundle
-			rootCAs, _ = x509.SystemCertPool()
-			if caPem, err := os.ReadFile(readconfig.Config.Clamd.CAfile); err == nil {
-				rootCAs.AppendCertsFromPEM(caPem)
-			}
-		}
-
 		// Client cert for mTLS
-		cert, err := tls.LoadX509KeyPair(readconfig.Config.Clamd.Certfile, readconfig.Config.Clamd.Keyfile)
+		cert, err := tls.LoadX509KeyPair(readconfig.Config.Clamd.TLSConfig.ClientCertfile, readconfig.Config.Clamd.TLSConfig.ClientKeyfile)
 		if err != nil {
-			logging.Printf("ERROR", "SetupClamd: SessionID:%d Could not read client cert or key file %s/%s: %v\n", sessionNo, readconfig.Config.Clamd.Certfile, readconfig.Config.Clamd.Keyfile, err)
+			logging.Printf("ERROR", "SetupClamd: SessionID:%d Could not read client cert or key file %s/%s: %v\n", sessionNo, readconfig.Config.Clamd.TLSConfig.ClientCertfile, readconfig.Config.Clamd.TLSConfig.ClientKeyfile, err)
 			return nil, err
 		}
 
@@ -87,25 +79,9 @@ func SetupClamd(connection string) (*ClamdStruct, error) {
 			// Don't expect multiple records for reverse DNS lookup
 			serverName = serverNames[0]
 		}
-		var tlsConf *tls.Config
-		if readconfig.Config.Clamd.CAfile == "insecure" {
-			// Replace the TLSClientConfig
-			logging.Printf("WARNING", "ClamdConnect: ClamAV TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n")
-			// #nosec G402 -- intentionally disabled
-			tlsConf = &tls.Config{
-				InsecureSkipVerify: true, // Skip certificate verification
-				Certificates:       []tls.Certificate{cert},
-				ServerName:         serverName,
-				MinVersion:         tls.VersionTLS12,
-			}
-		} else {
-			tlsConf = &tls.Config{
-				RootCAs:      rootCAs,
-				Certificates: []tls.Certificate{cert},
-				ServerName:   serverName,
-				MinVersion:   tls.VersionTLS12,
-			}
-		}
+		tlsConf := readconfig.Config.Clamd.TLSConf.Clone()
+		tlsConf.Certificates = []tls.Certificate{cert}
+		tlsConf.ServerName = serverName
 
 		// Create an HTTP client with the TLS configuration and keep-alive settings
 		transport := &http.Transport{
@@ -157,6 +133,7 @@ func clamdRequest(sessionNo int64, client *http.Client, url string, body []byte)
 	return string(responseBody), nil
 }
 
+// HasVirus reports Virus status
 func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, bool) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
 
@@ -183,9 +160,8 @@ func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, b
 			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not create json data: %v\n", sessionNo, err)
 			if readconfig.Config.Clamd.BlockOnError {
 				return "internal error", true
-			} else {
-				return "", false
 			}
+			return "", false
 		}
 
 		strResult, err := clamdRequest(sessionNo, clamdStruct.client, readconfig.Config.Clamd.Connection, []byte(requestBody))
@@ -193,9 +169,8 @@ func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, b
 			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not communicate to clamd scanner: %v\n", sessionNo, err)
 			if readconfig.Config.Clamd.BlockOnError {
 				return "internal error", true
-			} else {
-				return "", false
 			}
+			return "", false
 		}
 
 		logging.Printf("DEBUG", "HasVirus: SessionID:%d Received response: %s\n", sessionNo, strResult)
@@ -205,49 +180,47 @@ func HasVirus(sessionNo int64, clamdStruct *ClamdStruct, data []byte) (string, b
 			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not decode clamd response: %v\n", sessionNo, err)
 			if readconfig.Config.Clamd.BlockOnError {
 				return "internal error", true
-			} else {
-				return "", false
 			}
+			return "", false
 		}
 
 		if response.Status == "FOUND" {
 			return response.Message, true
 		}
 		return "", false
-	} else {
-		//
-		// Standard dutchcoders go-clamd
-		//
-		client := clamdStruct.clamd
-
-		logging.Printf("DEBUG", "HasVirus: SessionID:%d Write response to clamd: %d bytes\n", sessionNo, len(data))
-		readPipe, writePipe := io.Pipe()
-
-		go func() {
-			defer func() { _ = writePipe.Close() }()
-			_, err := writePipe.Write(data)
-			if err != nil {
-				logging.Printf("ERROR", "HasVirus: SessionID:%d Could not write to clamd scanner: %v\n", sessionNo, err)
-			}
-		}()
-
-		resultChan, err := client.ScanStream(readPipe, make(chan bool))
-		if err != nil {
-			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not open clamd scanner: %v\n", sessionNo, err)
-		}
-
-		logging.Printf("DEBUG", "HasVirus: SessionID:%d Get results from clamd\n", sessionNo)
-		// Read and print scan results
-		for result := range resultChan {
-			logging.Printf("DEBUG", "HasVirus: SessionID:%d Clamd scan result: Status:%s Raw: %s\n", sessionNo, result.Status, result.Raw)
-			//RES_OK          = "OK"           // No virus found
-			//RES_FOUND       = "FOUND"        // Virus or malware detected
-			//RES_ERROR       = "ERROR"        // General error during scanning
-			//RES_PARSE_ERROR = "PARSE ERROR"  // Error parsing the response or input
-			if result.Status == clamd.RES_FOUND {
-				return result.Description, true
-			}
-		}
-		return "", false
 	}
+	//
+	// Standard dutchcoders go-clamd
+	//
+	client := clamdStruct.clamd
+
+	logging.Printf("DEBUG", "HasVirus: SessionID:%d Write response to clamd: %d bytes\n", sessionNo, len(data))
+	readPipe, writePipe := io.Pipe()
+
+	go func() {
+		defer func() { _ = writePipe.Close() }()
+		_, err := writePipe.Write(data)
+		if err != nil {
+			logging.Printf("ERROR", "HasVirus: SessionID:%d Could not write to clamd scanner: %v\n", sessionNo, err)
+		}
+	}()
+
+	resultChan, err := client.ScanStream(readPipe, make(chan bool))
+	if err != nil {
+		logging.Printf("ERROR", "HasVirus: SessionID:%d Could not open clamd scanner: %v\n", sessionNo, err)
+	}
+
+	logging.Printf("DEBUG", "HasVirus: SessionID:%d Get results from clamd\n", sessionNo)
+	// Read and print scan results
+	for result := range resultChan {
+		logging.Printf("DEBUG", "HasVirus: SessionID:%d Clamd scan result: Status:%s Raw: %s\n", sessionNo, result.Status, result.Raw)
+		//RES_OK          = "OK"           // No virus found
+		//RES_FOUND       = "FOUND"        // Virus or malware detected
+		//RES_ERROR       = "ERROR"        // General error during scanning
+		//RES_PARSE_ERROR = "PARSE ERROR"  // Error parsing the response or input
+		if result.Status == clamd.RES_FOUND {
+			return result.Description, true
+		}
+	}
+	return "", false
 }

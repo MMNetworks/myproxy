@@ -12,7 +12,7 @@ import (
 
 var alreadyExists bool = false
 
-func _systemLog(timeStamp string, level string, format string, a ...any) (int, error) {
+func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 	const stdoutLog = "C:\\Temp\\myproxy_stdout.log"
 	var length int
 	var err error

@@ -1,3 +1,4 @@
+// Package proxydial handles dial via proxy
 package proxydial
 
 import (
@@ -20,7 +21,17 @@ func c2s(conn net.Conn) string {
 	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
 }
 
-// Dial for TLS connection using CONNECT method
+// PrxDial is a dial function for TLS connection using CONNECT method
+// Input:
+//
+//	session context
+//	network
+//	address
+//
+// Output:
+//
+//	network connection
+//
 // This works as no response body is expected from the proxy
 func PrxDial(ctx *httpproxy.Context, network, address string) (net.Conn, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)

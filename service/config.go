@@ -1,3 +1,5 @@
+// Package service defines entry point and proxy support functions
 package service
 
-const Version = "3.3.6"
+// Version holds myproxy version
+const Version = "3.5.0"

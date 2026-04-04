@@ -136,6 +136,7 @@ func ServeInMemory(ctx *Context, w http.ResponseWriter, code int, header http.He
 	return ServeResponse(ctx, w, InMemoryResponse(code, header, body))
 }
 
+// HasPort returns if address has digits
 var HasPort = regexp.MustCompile(`:\d+$`)
 
 func stripPort(s string) string {

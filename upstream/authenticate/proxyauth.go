@@ -1,3 +1,4 @@
+// Package authenticate handles upstream proxy authentication
 package authenticate
 
 import (
@@ -33,6 +34,7 @@ func (pA *proxyAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, e
 	return http.ReadResponse(bufio.NewReader(conn), req)
 }
 
+// DoProxyAuth Adds upstream proxy authentication headers for client
 func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var err error
@@ -66,18 +68,18 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 	nego = strings.Contains(bestAuthUpper, "NEGOTIATE")
 	basic = strings.Contains(bestAuthUpper, "BASIC")
 	if ntlm {
-		err = DoNTLMProxyAuth(ctx, req, resp, "NTLM")
+		err = doNTLMProxyAuth(ctx, req, resp, "NTLM")
 		if err != nil {
 			logging.Printf("ERROR", "DoProxyAuth: SessionID:%d NTLM failed: %v\n", ctx.SessionNo, err)
 		}
 
 	} else if nego {
-		err := DoNegotiateProxyAuth(ctx, req, resp)
+		err := doNegotiateProxyAuth(ctx, req, resp)
 		if err != nil {
 			logging.Printf("ERROR", "DoProxyAuth: SessionID:%d Negotiate failed: %v\n", ctx.SessionNo, err)
 		}
 	} else if basic {
-		err := DoBasicProxyAuth(ctx, req, resp)
+		err := doBasicProxyAuth(ctx, req, resp)
 		if err != nil {
 			logging.Printf("ERROR", "DoProxyAuth: SessionID:%d Basic failed: %v\n", ctx.SessionNo, err)
 		}
@@ -92,39 +94,39 @@ func DoProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response)
 	}
 }
 
-func DoBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
+func doBasicProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	var err error
 
 	proxyUsername := readconfig.Config.Proxy.BasicUser
 	proxyPassword := readconfig.Config.Proxy.BasicPass
 	proxyAuth := proxyUsername + ":" + proxyPassword
-	logging.Printf("DEBUG", "DoBasicProxyAuth: SessionID:%d Encoded string: %s\n", ctx.SessionNo, base64.StdEncoding.EncodeToString([]byte(proxyAuth)))
+	logging.Printf("DEBUG", "doBasicProxyAuth: SessionID:%d Encoded string: %s\n", ctx.SessionNo, base64.StdEncoding.EncodeToString([]byte(proxyAuth)))
 
 	req.Header.Add("Proxy-Authorization", fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(proxyAuth))))
 	basicResp, err := ctx.Rt.RoundTrip(req)
 	if err != nil {
-		logging.Printf("ERROR", "DoBasicroxyAuth: SessionID:%d Unexpected RoundTrip error: %v\n", ctx.SessionNo, err)
+		logging.Printf("ERROR", "doBasicroxyAuth: SessionID:%d Unexpected RoundTrip error: %v\n", ctx.SessionNo, err)
 		if basicResp == nil {
-			logging.Printf("ERROR", "DoBasicProxyAuth: SessionID:%d No basic authorisation header in RoundTrip response: %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "doBasicProxyAuth: SessionID:%d No basic authorisation header in RoundTrip response: %v\n", ctx.SessionNo, err)
 			return err
 		} else if basicResp.StatusCode != http.StatusProxyAuthRequired {
-			logging.Printf("ERROR", "DoBasicProxyAuth: SessionID:%d RoundTrip error: %v\n", ctx.SessionNo, err)
-			OverwriteResponse(ctx, resp, basicResp)
+			logging.Printf("ERROR", "doBasicProxyAuth: SessionID:%d RoundTrip error: %v\n", ctx.SessionNo, err)
+			overwriteResponse(ctx, resp, basicResp)
 			return err
 		}
 	}
 
-	OverwriteResponse(ctx, resp, basicResp)
-	logging.Printf("DEBUG", "DoBasicProxyAuth: SessionID:%d Auth done\n", ctx.SessionNo)
+	overwriteResponse(ctx, resp, basicResp)
+	logging.Printf("DEBUG", "doBasicProxyAuth: SessionID:%d Auth done\n", ctx.SessionNo)
 	return nil
 }
 
-func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *http.Response) {
+func overwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// Replace original response
 	if newResp == nil {
-		logging.Printf("ERROR", "OverwriteResponse: SessionID:%d Empty response\n", ctx.SessionNo)
+		logging.Printf("ERROR", "overwriteResponse: SessionID:%d Empty response\n", ctx.SessionNo)
 		return
 	}
 	orgResp.StatusCode = newResp.StatusCode
@@ -133,7 +135,7 @@ func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *
 		orgResp.Header.Del(k)
 		tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
 		tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
-		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Delete header %s:%s\n", ctx.SessionNo, tK, tV)
+		logging.Printf("DEBUG", "overwriteResponse: SessionID:%d Delete header %s:%s\n", ctx.SessionNo, tK, tV)
 	}
 	for k, v := range newResp.Header {
 		for i := 0; i < len(v); i++ {
@@ -141,7 +143,7 @@ func OverwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *
 		}
 		tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
 		tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
-		logging.Printf("DEBUG", "OverwriteResponse: SessionID:%d Add header %s=%s\n", ctx.SessionNo, tK, tV)
+		logging.Printf("DEBUG", "overwriteResponse: SessionID:%d Add header %s=%s\n", ctx.SessionNo, tK, tV)
 	}
 	if newResp.Body != http.NoBody {
 		orgResp.Body = newResp.Body

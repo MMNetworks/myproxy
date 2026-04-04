@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// AccessLogRecord is the record of all session details
 type AccessLogRecord struct {
 	// proxy hostname
 	Proxy string
@@ -27,7 +28,7 @@ type AccessLogRecord struct {
 	// HTTP scheme
 	Scheme string
 	// HTTP URL requested
-	Url string
+	URL string
 	// HTTP protocol version requested
 	Version string
 	// HTTP response code
@@ -70,8 +71,9 @@ func humanReadableBitrate(bps float64) string {
 	}
 }
 
+// AccesslogWrite write record to file or stdout
 func AccesslogWrite(record AccessLogRecord) {
-	var accesslogFilename string = "STDOUT"
+	var accesslogFilename = "STDOUT"
 	current.Mu.Lock()
 	defer current.Mu.Unlock()
 	if current.accessLog != "" {
@@ -80,14 +82,15 @@ func AccesslogWrite(record AccessLogRecord) {
 	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
 	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
 
-	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
+	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.URL, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 
 	_, _ = osPrintf(accesslogFilename, "ACCESS", "%s", accessLogline)
 
 }
 
+// AccesslogWriteStart write start record to file or stdout
 func AccesslogWriteStart(record AccessLogRecord) {
-	var accesslogFilename string = "STDOUT"
+	var accesslogFilename = "STDOUT"
 	current.Mu.Lock()
 	defer current.Mu.Unlock()
 	if current.accessLog != "" {
@@ -96,7 +99,7 @@ func AccesslogWriteStart(record AccessLogRecord) {
 	recordMbIN := humanReadableBitrate(float64(record.BytesIN) / float64(record.Duration.Seconds()))
 	recordMbOUT := humanReadableBitrate(float64(record.BytesOUT) / float64(record.Duration.Seconds()))
 
-	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.Url, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
+	accessLogline := fmt.Sprintf("proxy=%s|proxyIP=%s|sessionID=%d|sourceIP=%s|destinationIP=%s|user-agent=%s|forwardedIP=%s|upstreamProxyIP=%s|method=%s|scheme=%s|url=%s|version=%s|status=%s|virus=%s|bytesIN=%d|bytesOUT=%d|protocol=%s|starttime=%s|endtime=%s|duration=%s|speedIN=%s|speedOUT=%s\n", record.Proxy, record.ProxyIP, record.SessionID, record.SourceIP, record.DestinationIP, record.UserAgent, record.ForwardedIP, record.UpstreamProxyIP, record.Method, record.Scheme, record.URL, record.Version, record.Status, record.VirusList, record.BytesIN, record.BytesOUT, record.Protocol, record.Starttime.Format(time.RFC1123), record.Endtime.Format(time.RFC1123), record.Duration.String(), recordMbIN, recordMbOUT)
 
 	_, _ = osPrintf(accesslogFilename, "STARTLOG", "%s", accessLogline)
 }

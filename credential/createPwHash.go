@@ -1,3 +1,4 @@
+// Create a 256 password hash
 package main
 
 import (

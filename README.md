@@ -203,9 +203,14 @@ The rules file content will be appended to the rules list
 </ul>
 The rules file content will be appended to the rules list
 </ul>
+</ul>
+<li>tlsconfig:</li>
+<ul>
+<li>Allows to set client and server certificate where needed as well as general TLS parameters like minimal , maxilmal TLS versions as well as curever and cipher selections. A CA bundle starting with + will be added to the system certificate bundle otherwise not</li>
+</ul>
 <li>ftp:</li>
 <ul>
-<li>setting default username / password for ftp. Default is anonymous / anonymous@myproxy
+<li>setting default username / password for ftp. Default is anonymous / anonymous@myproxy</li>
 </ul>
 </ul>
 
@@ -216,10 +221,18 @@ listen:
   ip: 127.0.0.1
   port: 9080
   tls: false
-  certfile: "rootCA.crt"
-  keyfile: "rootCA.key"
-#  rootcafile: "CA.pem"
-  rootcafile: "insecure"
+  tlsconfig:
+    servercertfile: "rootCA.crt"
+    serverkeyfile: "rootCA.key"
+    minversion: "TLS12"
+    maxversion: "TLS13"
+    curveid:
+      - "X25519"
+      - "P256"
+    cipherid:
+      - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256"
+      - "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256"
+    cabundle: "insecure"
   readtimeout: 0
   readtheaderimeout: 0
   writetimeout: 0
@@ -237,9 +250,10 @@ clamd:
   block: true
   blockonerror: true
   connection: "unix:/var/run/clamav/clamd.ctl"
-  certfile: "clientcert.pem"
-  keyfile: "clientkey.pem"
-  rootcafile: "rootca.pem"
+  tlsconfig:
+    clientcertfile: "clientcert.pem"
+    clientkeyfile: "clientkey.pem"
+    cabundle: "rootca.pem"
 logging:
   level: "debug"
   file: "log_9080"
@@ -257,6 +271,8 @@ connection:
     - "https://dns.nextdns.io"
     - "1.1.1.1"
     - "8.8.8.8"
+  tlsconfig:
+    cabundle: "+rootca.pem"
   dnstimeout: 2
   fallbackdelay: 300
   ipv6: true
@@ -281,22 +297,26 @@ ftp:
   password: "anonymous@ftp.com"
 mitm:
   enable: false
-  key: ""
-  cert: ""
-  keyfile: "key.pem"
-  certfile: "cert.pem"
+  tlsconfig:
+    serverkey: ""
+    servercert: ""
+    serverkeyfile: "key.pem"
+    servercertfile: "cert.pem"
   rulesfile: "mitmrules.yaml"
   rules: 
     - ip: "::1"
       client: "client"
       regex: ".*"
-      certfile: "insecure"
+      tlsconfig:
+        cabundle: "insecure"
     - ip: "!100.10.10.0/24"
       regex: ".*"
-      certfile: "selfsignedCA"
+      tlsconfig:
+        cabundle: "selfsignedCA"
     - ip: "192.168.1.0/24"
       regex: ".*"
-      certfile: "insecure"
+      tlsconfig:
+        cabundle: "insecure"
     - ip: "0.0.0.0/0
       client: "client"
       regex: ".*"

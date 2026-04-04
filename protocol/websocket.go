@@ -14,7 +14,7 @@ func c2s(conn net.Conn) string {
 	return fmt.Sprintf("%s->%s", conn.LocalAddr(), conn.RemoteAddr())
 }
 
-// Track Websocket state
+// WSStruct Track Websocket state
 type WSStruct struct {
 	// Websocket request
 	Websocket bool
@@ -25,6 +25,7 @@ type WSStruct struct {
 
 const maxInt uint64 = uint64(int(^uint(0) >> 1))
 
+// WebsocketRead reads packets from a websocket
 func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, buf []byte, mbuf []byte) (int, error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), sessionNo)
 	var payloadLen int
@@ -35,7 +36,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 	var masked bool
 	var maskKey [4]byte
 	var rType string
-	var maxPayloadLength int = readconfig.Config.WebSocket.MaxPayloadLength
+	var maxPayloadLength int = readconfig.Config.Websocket.MaxPayloadLength
 
 	localBuf := make([]byte, maxPayloadLength+14)
 

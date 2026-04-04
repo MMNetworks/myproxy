@@ -3,8 +3,6 @@ package service
 import (
 	"bytes"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"flag"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
@@ -20,13 +18,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 	// "github.com/yassinebenaid/godump"
 )
 
+// OnError Error callback.
 func OnError(ctx *httpproxy.Context, where string,
 	err *httpproxy.Error, opErr error) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
@@ -44,7 +42,7 @@ func setTLSBreak(ctx *httpproxy.Context) {
 		}
 		for _, rule := range readconfig.Config.MITM.Rules {
 			// IncExc string format (!|)src,(client|proxy);regex,rootCA
-			logging.Printf("DEBUG", "setTLSBreak: SessionID:%d Check against rule entry: %s,%s,%s,%s\n", ctx.SessionNo, rule.IP, rule.Client, rule.Regex, rule.CertFile)
+			logging.Printf("DEBUG", "setTLSBreak: SessionID:%d Check against rule entry: %s,%s,%s,%s\n", ctx.SessionNo, rule.IP, rule.Client, rule.Regex, rule.TLSConfig.CAbundle)
 			// Skip empty or whitespace-only rules
 			if strings.TrimSpace(rule.IP) == "" {
 				continue
@@ -76,55 +74,15 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 	var forwardedIP string = ctx.AccessLog.ForwardedIP
 	var uri string = ctx.Req.URL.String()
 	var uriRedacted string = httpproxy.CleanUntrustedString(ctx, "URL Redacted", ctx.Req.URL.Redacted())
-	var matchConn bool = false
-	var matchForw bool = false
-	var checkClient bool = true
-	var checkProxy bool = true
+	var matchConn = false
+	var matchForw = false
+	var checkClient = true
+	var checkProxy = true
 	var incExcRex string
-	var rootCA string = ""
 
 	// Parse Include/Exclude line
 
-	rootCA = rule.CertFile
-
-	if rootCA == "insecure" {
-		// Replace the TLSClientConfig
-		logging.Printf("WARNING", "doTLSBreak: SessionID:%d TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n", ctx.SessionNo)
-		// #nosec G402 -- intentionally disabled
-		ctx.TLSConfig = &tls.Config{
-			InsecureSkipVerify: true, // Skip certificate verification
-		}
-	} else {
-		rootCAFilepath, err := filepath.Abs(rootCA)
-		if err != nil {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could not read CA bundle: %v\n", ctx.SessionNo, err)
-			return 0
-		}
-
-		// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
-		caCerts, err := os.ReadFile(rootCAFilepath)
-		if err != nil {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Could  not read CA bundle: %v\n", ctx.SessionNo, err)
-			return 0
-		}
-
-		customPool, err := x509.SystemCertPool()
-		if err != nil {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Failed to load system CA bundle: %v\n", ctx.SessionNo, err)
-			return 0
-		}
-
-		ok := customPool.AppendCertsFromPEM(caCerts)
-		if !ok {
-			logging.Printf("ERROR", "doTLSBreak: SessionID:%d Failed to append custom CA bundle\n", ctx.SessionNo)
-			return 0
-		}
-
-		// Replace the TLSClientConfig
-		ctx.TLSConfig = &tls.Config{
-			RootCAs: customPool,
-		}
-	}
+	ctx.TLSConfig = rule.TLSConf
 
 	// Match URL against regex
 	matchURI, err := regexp.MatchString(rule.Regex, uri)
@@ -208,6 +166,7 @@ func doTLSBreak(ctx *httpproxy.Context, rule readconfig.MitmRule) int {
 	return 0
 }
 
+// OnAccept Accept callback.
 func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter, r *http.Request) bool {
 	var err error
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
@@ -241,7 +200,8 @@ func OnAccept(ctx *httpproxy.Context, w http.ResponseWriter, r *http.Request) bo
 	return false
 }
 
-func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) bool {
+// OnAuth Auth callback.
+func OnAuth(ctx *httpproxy.Context, _ string, user string, pass string) bool {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// Auth test user.
 	if pass != "" {
@@ -252,33 +212,33 @@ func OnAuth(ctx *httpproxy.Context, authType string, user string, pass string) b
 		logging.Printf("DEBUG", "OnAuth: SessionID:%d User: %s Password hash: %s\n", ctx.SessionNo, user, hexSum)
 		if user == readconfig.Config.Proxy.LocalBasicUser && hexSum == readconfig.Config.Proxy.LocalBasicHash {
 			return true
-		} else {
-			return false
 		}
 	}
 	return false
 }
 
+// OnConnect Connect callback.
 func OnConnect(ctx *httpproxy.Context, host string) (
 	ConnectAction httpproxy.ConnectAction, newHost string) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	if ctx.TLSBreak {
 		return httpproxy.ConnectMitm, host
-	} else {
-		return httpproxy.ConnectProxy, host
 	}
-	//return httpproxy.ConnectProxy, host
+	return httpproxy.ConnectProxy, host
+
 	// Apply "Man in the Middle" to all ssl connections. Never change host.
 	//return httpproxy.ConnectMitm, host
 }
 
-func OnRequest(ctx *httpproxy.Context, req *http.Request) (
+// OnRequest Request callback.
+func OnRequest(ctx *httpproxy.Context, _ *http.Request) (
 	resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// var err error
 	return
 }
 
+// OnResponse Response callback.
 func OnResponse(ctx *httpproxy.Context, req *http.Request,
 	resp *http.Response) {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
@@ -300,15 +260,15 @@ func setReadTimeout(ctx *httpproxy.Context) {
 	var connectionIP string = ctx.AccessLog.SourceIP
 	var forwardedIP string = ctx.AccessLog.ForwardedIP
 	var uri string = httpproxy.CleanUntrustedString(ctx, "URL Redacted", ctx.Req.URL.Redacted())
-	var matchConn bool = false
-	var matchForw bool = false
-	var checkClient bool = true
-	var checkProxy bool = true
+	var matchConn = false
+	var matchForw = false
+	var checkClient = true
+	var checkProxy = true
 	var incExcRex string
 	var timeOut int
 
-	if readconfig.Config.WebSocket.Timeout != 0 {
-		timeOut = readconfig.Config.WebSocket.Timeout
+	if readconfig.Config.Websocket.Timeout != 0 {
+		timeOut = readconfig.Config.Websocket.Timeout
 	} else {
 		if readconfig.Config.Connection.ReadTimeout != 0 {
 			timeOut = readconfig.Config.Connection.ReadTimeout
@@ -318,9 +278,9 @@ func setReadTimeout(ctx *httpproxy.Context) {
 	}
 	ctx.ReadTimeout = timeOut
 
-	readconfig.Config.WebSocket.Mu.Lock()
-	defer readconfig.Config.WebSocket.Mu.Unlock()
-	for _, rule := range readconfig.Config.WebSocket.Rules {
+	readconfig.Config.Websocket.Mu.Lock()
+	defer readconfig.Config.Websocket.Mu.Unlock()
+	for _, rule := range readconfig.Config.Websocket.Rules {
 		// IncExc string format (!|)src,(client|proxy);regex,timeout
 		logging.Printf("DEBUG", "setReadTimeout: SessionID:%d Check against Rules entry: %s,%s,%s,%d\n", ctx.SessionNo, rule.IP, rule.Client, rule.Regex, rule.Timeout)
 		// Skip empty or whitespace-only rules
@@ -440,6 +400,7 @@ func runProxy(args []string) {
 	if err != nil {
 		timeStamp := time.Now().Format(time.RFC1123)
 		fmt.Printf("%s ERROR: runProxy: configuration read error: %v\n", timeStamp, err)
+		time.Sleep(2 * time.Second)
 		os.Exit(1)
 	}
 
@@ -472,15 +433,15 @@ func runProxy(args []string) {
 	logging.Printf("INFO", "runProxy: Proxy.LocalBasicHash: %s\n", readconfig.Config.Proxy.LocalBasicHash)
 
 	if readconfig.Config.MITM.Enable {
-		logging.Printf("INFO", "runProxy: MITM Certfile: %s\n", readconfig.Config.MITM.Certfile)
-		logging.Printf("INFO", "runProxy: MITM Keyfile: %s\n", readconfig.Config.MITM.Keyfile)
-		if readconfig.Config.MITM.Cert != "" {
+		logging.Printf("INFO", "runProxy: MITM.TLSConfig.ServerCertfile: %s\n", readconfig.Config.MITM.TLSConfig.ServerCertfile)
+		logging.Printf("INFO", "runProxy: MITM.TLSConfig.ServerKeyfile: %s\n", readconfig.Config.MITM.TLSConfig.ServerKeyfile)
+		if readconfig.Config.MITM.TLSConfig.ServerCert != "" {
 			logging.Printf("INFO", "runProxy: MITM certificate set\n")
-			caCert = []byte(readconfig.Config.MITM.Cert)
+			caCert = []byte(readconfig.Config.MITM.TLSConfig.ServerCert)
 		}
-		if readconfig.Config.MITM.Key != "" {
+		if readconfig.Config.MITM.TLSConfig.ServerKey != "" {
 			logging.Printf("INFO", "runProxy: MITM key set\n")
-			caKey = []byte(readconfig.Config.MITM.Key)
+			caKey = []byte(readconfig.Config.MITM.TLSConfig.ServerKey)
 		}
 	}
 
@@ -563,41 +524,16 @@ func runProxy(args []string) {
 	// Listen...
 	listen := readconfig.Config.Listen.IP + ":" + readconfig.Config.Listen.Port
 	if readconfig.Config.Listen.TLS {
-		var TLSConfig *tls.Config
 		logging.Printf("INFO", "runProxy: Enabling TLS\n")
-		logging.Printf("INFO", "runProxy: Use certificate file: %s\n", readconfig.Config.Listen.Certfile)
-		logging.Printf("INFO", "runProxy: Use key file: %s\n", readconfig.Config.Listen.Keyfile)
-		logging.Printf("INFO", "runProxy: Use CA file: %s\n", readconfig.Config.Listen.CAfile)
-		// TLS config requiring client certs
-		caCertPool := x509.NewCertPool()
-		if readconfig.Config.Listen.CAfile != "insecure" {
-			caCert, err := os.ReadFile(readconfig.Config.Listen.CAfile)
-			if err != nil {
-				logging.Printf("ERROR", "runProxy: Could  not read CA bundle %s: %v\n", readconfig.Config.Listen.CAfile, err)
-				return
-			}
-			caCertPool.AppendCertsFromPEM(caCert)
-			TLSConfig = &tls.Config{
-				ClientCAs:  caCertPool,
-				ClientAuth: tls.RequestClientCert, // request client cert
-				//			ClientAuth: tls.RequireAndVerifyClientCert, // enforce client cert
-			}
-		} else {
-			logging.Printf("WARNING", "runProxy: Listen TLS certificate verification DISABLED - vulnerable to MITM attacks! Only use in trusted environments.\n")
-			// #nosec G402 -- intentionally disabled
-			TLSConfig = &tls.Config{
-				ClientCAs:          caCertPool,
-				ClientAuth:         tls.RequestClientCert, // request client cert
-				InsecureSkipVerify: true,                  // Skip certificate verification
-				//			ClientAuth: tls.RequireAndVerifyClientCert, // enforce client cert
-			}
-		}
+		logging.Printf("INFO", "runProxy: Use certificate file: %s\n", readconfig.Config.Listen.TLSConfig.ServerCertfile)
+		logging.Printf("INFO", "runProxy: Use key file: %s\n", readconfig.Config.Listen.TLSConfig.ServerKeyfile)
+		logging.Printf("INFO", "runProxy: Use CA file: %s\n", readconfig.Config.Listen.TLSConfig.CAbundle)
 		// #nosec G112 -- ReadHeaderTimeout is set immediatley below Server is called
 		server = &http.Server{
 			Addr:           listen,
 			Handler:        prx,
 			MaxHeaderBytes: 1 << 20, // 1Mb
-			TLSConfig:      TLSConfig,
+			TLSConfig:      readconfig.Config.Listen.TLSConf,
 		}
 	} else {
 		// #nosec G112 -- ReadHeaderTimeout is set immediatley below Server is called
@@ -626,7 +562,7 @@ func runProxy(args []string) {
 
 	logging.Printf("INFO", "runProxy: Listening on %s:%s\n", readconfig.Config.Listen.IP, readconfig.Config.Listen.Port)
 	if readconfig.Config.Listen.TLS {
-		err = server.ListenAndServeTLS(readconfig.Config.Listen.Certfile, readconfig.Config.Listen.Keyfile)
+		err = server.ListenAndServeTLS(readconfig.Config.Listen.TLSConfig.ServerCertfile, readconfig.Config.Listen.TLSConfig.ServerKeyfile)
 	} else {
 		err = server.ListenAndServe()
 	}

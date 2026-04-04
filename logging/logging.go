@@ -1,3 +1,4 @@
+// Package logging handles all logging
 package logging
 
 import (
@@ -12,6 +13,7 @@ import (
 	"time"
 )
 
+// TLSString converts TLS names
 // Followed RFC in using hex instead of decimal in same cases
 //
 // SSL 3.0 RFC 6101
@@ -45,6 +47,7 @@ var TLSString = map[string]string{
 	"fafa": "RFC8701",
 }
 
+// TLSRecordType converts TLS record types
 var TLSRecordType = map[uint8]string{
 	0:  "invalid",
 	20: "change_cipher_spec",
@@ -54,6 +57,7 @@ var TLSRecordType = map[uint8]string{
 	24: "heartbeat",
 }
 
+// TLSHandshakeType converts TLS handshake types
 var TLSHandshakeType = map[uint8]string{
 	0:   "hello_request_RESERVED",
 	1:   "client_hello",
@@ -82,6 +86,7 @@ var TLSHandshakeType = map[uint8]string{
 	254: "message_hash",
 }
 
+// TLSCipher converts TLS cipher types
 // Cipher list from https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-parameters-4
 // + RFC8701
 var TLSCipher = map[string]string{
@@ -455,6 +460,7 @@ var TLSCipher = map[string]string{
 	"fafa": "RFC8701",
 }
 
+// TLSExtensionType converts TLS Extension types
 // from https://www.iana.org/assignments/tls-extensiontype-values/tls-extensiontype-values.xhtml
 // +RFC8701
 // + "TLS Application-Layer Protocol Settings Extension" - ihttps://github.com/vasilvv/tls-alps/blob/main/draft-vvv-tls-alps.md
@@ -545,6 +551,7 @@ var TLSExtensionType = map[uint16]string{
 	64250: "RFC8701",
 }
 
+// ReadConfig interface
 type ReadConfig interface {
 	LogLevel() string
 	LogTrace() bool
@@ -574,6 +581,7 @@ var current configStruct
 
 var logChan = make(chan logStruct, 65000) // Buffered channel
 
+// LogProcessor background process handling logging
 func LogProcessor(readConfig ReadConfig) {
 	var logBuffer *bufio.Writer
 	var accessBuffer *bufio.Writer
@@ -675,12 +683,14 @@ func LogProcessor(readConfig ReadConfig) {
 	}
 }
 
+// GetFunctionName gets name of function
 func GetFunctionName() string {
 	pc, _, _, _ := runtime.Caller(1)
 	fn := runtime.FuncForPC(pc)
 	return fn.Name()
 }
 
+// Printf for logging
 func Printf(level string, format string, a ...any) {
 	message := fmt.Sprintf(format, a...)
 	formatString := time.RFC1123
