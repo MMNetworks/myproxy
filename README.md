@@ -160,7 +160,7 @@ When using myproxy as Windows service make sure the file paths are absolute path
   - It supports DoT when prefixing DNS resolver IP with tls://
   - When selecting a DoH service i.e. prefix the DNS resolver with https:// it can be used over an upstream proxy. Any DNS loops will be avoided
   - You can select openDNS dns servers to apply category filtering.
-  - hostsfile is used for adding local ip mappings (uses system hosts file as default before configure DNS servers)
+  - hostsfile is used for adding local ip mappings (uses system hosts file as default before configured DNS servers)
   - hostsfirst is a boolean to define if hosts file is used before DNS ( default false)
   - hostsonly is a boolean to use only a hosts file. (default false)
 
