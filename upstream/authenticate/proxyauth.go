@@ -140,10 +140,10 @@ func overwriteResponse(ctx *httpproxy.Context, orgResp *http.Response, newResp *
 	for k, v := range newResp.Header {
 		for i := 0; i < len(v); i++ {
 			orgResp.Header.Add(k, v[i])
+			tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
+			tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
+			logging.Printf("DEBUG", "overwriteResponse: SessionID:%d Add header %s=%s\n", ctx.SessionNo, tK, tV)
 		}
-		tK := httpproxy.CleanUntrustedString(ctx, "Header key", k)
-		tV := httpproxy.CleanUntrustedString(ctx, "Header Value", strings.Join(v, ","))
-		logging.Printf("DEBUG", "overwriteResponse: SessionID:%d Add header %s=%s\n", ctx.SessionNo, tK, tV)
 	}
 	if newResp.Body != http.NoBody {
 		orgResp.Body = newResp.Body
