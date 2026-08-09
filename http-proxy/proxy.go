@@ -478,7 +478,7 @@ func resolveFromHosts(ctx *Context, hostsfile string, host string) ([]string, st
 		logging.Printf("ERROR", "resolveFromHosts: SessionID:%d Error open hosts file %s: %v\n", ctx.SessionNo, file, err)
 		return nil, file, nil
 	}
-	defer f.Close()
+        defer func() { _ = f.Close() }()
 
 	var results []string
 
