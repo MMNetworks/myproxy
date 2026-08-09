@@ -1,16 +1,21 @@
 //go:build windows
 
+// Package logging provides Windows-specific log output support for myproxy.
+//
+// It writes logging events to the Windows Event Log when the proxy is running
+// on Windows-based systems.
 package logging
 
 import (
 	"fmt"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/eventlog"
 	"regexp"
 	"strings"
+
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/eventlog"
 )
 
-var alreadyExists bool = false
+var alreadyExists = false
 
 func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 	const stdoutLog = "C:\\Temp\\myproxy_stdout.log"
@@ -56,7 +61,8 @@ func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 		return 0, err
 	}
 
-	if level == "INFO" {
+	switch level {
+	case "INFO":
 		switch {
 		case
 			current.logLevel == "DEBUG",
@@ -65,7 +71,7 @@ func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 			length = len("INFO: " + message)
 		default:
 		}
-	} else if level == "DEBUG" {
+	case "DEBUG":
 		switch {
 		case
 			current.logLevel == "DEBUG":
@@ -73,7 +79,7 @@ func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 			length = len("DEBUG: " + message)
 		default:
 		}
-	} else if level == "WARNING" {
+	case "WARNING":
 		switch {
 		case
 			current.logLevel == "DEBUG",
@@ -83,15 +89,15 @@ func _systemLog(_ string, level string, format string, a ...any) (int, error) {
 			length = len("WARNING: " + message)
 		default:
 		}
-	} else if level == "ERROR" {
+	case "ERROR":
 		err = wlog.Error(300, "ERROR: "+message)
 		length = len("ERROR: " + message)
-	} else if level == "ACCESS" || level == "STARTLOG" {
+	case "ACCESS", "STARTLOG":
 		err = wlog.Info(500, level+": "+message)
 		length = len(level + ": " + message)
-	} else if level == "TRACE" {
+	case "TRACE":
 		// Don't log trace to eventlog
-	} else {
+	default:
 		err = wlog.Info(500, "UNKNONW: "+message)
 		length = len("UNKNOWN: " + message)
 	}

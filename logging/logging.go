@@ -724,7 +724,8 @@ func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format s
 	current.Mu.Lock()
 	defer current.Mu.Unlock()
 	message := fmt.Sprintf(format, a...)
-	if level == "INFO" {
+	switch level {
+	case "INFO":
 		switch {
 		case
 			current.logLevel == "DEBUG",
@@ -732,14 +733,14 @@ func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format s
 			length, err = fmt.Fprintf(logBuffer, "%s INFO: %s", timeStamp, message)
 		default:
 		}
-	} else if level == "DEBUG" {
+	case "DEBUG":
 		switch {
 		case
 			current.logLevel == "DEBUG":
 			length, err = fmt.Fprintf(logBuffer, "%s DEBUG: %s", timeStamp, message)
 		default:
 		}
-	} else if level == "WARNING" {
+	case "WARNING":
 		switch {
 		case
 			current.logLevel == "DEBUG",
@@ -748,15 +749,15 @@ func _osPrintf(timeStamp string, logBuffer *bufio.Writer, level string, format s
 			length, err = fmt.Fprintf(logBuffer, "%s WARNING: %s", timeStamp, message)
 		default:
 		}
-	} else if level == "ERROR" {
+	case "ERROR":
 		length, err = fmt.Fprintf(logBuffer, "%s ERROR: %s", timeStamp, message)
-	} else if level == "ACCESS" || level == "STARTLOG" {
+	case "ACCESS", "STARTLOG":
 		length, err = fmt.Fprintf(logBuffer, "%s %s: %s", timeStamp, level, message)
-	} else if level == "TRACE" {
+	case "TRACE":
 		if current.logTrace {
 			length, err = fmt.Fprintf(logBuffer, "%s TRACE: %s", timeStamp, message)
 		}
-	} else {
+	default:
 		length, err = fmt.Fprintf(logBuffer, "%s UNKNOWN: %s", timeStamp, message)
 	}
 	return length, err

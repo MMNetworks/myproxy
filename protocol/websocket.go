@@ -1,3 +1,7 @@
+// Package protocol provides websocket parsing and protocol analysis helpers for myproxy.
+//
+// It contains utilities for decoding websocket frames and tracking websocket
+// state across proxied traffic.
 package protocol
 
 import (
@@ -66,7 +70,8 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 
 	copy(mbuf[:], localBuf[:2])
 
-	if payloadLen == 126 {
+	switch payloadLen {
+	case 126:
 		err = conn.SetReadDeadline(time.Now().Add(time.Duration(timeOut) * time.Second))
 		if err != nil {
 			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Could not set read deadline: %v\n", rType, sessionNo, err)
@@ -80,7 +85,7 @@ func WebsocketRead(request bool, conn net.Conn, timeOut int, sessionNo int64, bu
 		payloadLen = int(binary.BigEndian.Uint16(localBuf[:2]))
 		copy(mbuf[offset:], localBuf[:2])
 		offset += 2
-	} else if payloadLen == 127 {
+	case 127:
 		err := conn.SetReadDeadline(time.Now().Add(time.Duration(timeOut) * time.Second))
 		if err != nil {
 			logging.Printf("DEBUG", "WebsocketRead%s: SessionID:%d Could not set read deadline: %v\n", rType, sessionNo, err)

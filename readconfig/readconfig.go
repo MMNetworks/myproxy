@@ -6,9 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
-	"golang.org/x/term"
-	"gopkg.in/yaml.v3"
 	"myproxy/logging"
 	"net"
 	"os"
@@ -18,6 +15,10 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 var versionMap = map[string]uint16{
@@ -33,17 +34,43 @@ var curveMap = map[string]tls.CurveID{}
 var cipherMap = map[string]uint16{}
 
 func init() {
-	// If curveMapExtra is nil, nothing happens
-	for k, v := range curveMapExtra {
-		curveMap[k] = v
+	initCurveMap()
+	initCipherMap()
+}
+
+func buildCurveMap(extra map[string]tls.CurveID) map[string]tls.CurveID {
+	merged := make(map[string]tls.CurveID, len(baseCurveMap)+len(extra))
+	for name, id := range baseCurveMap {
+		merged[name] = id
 	}
-	// set cipher map
+	for name, id := range extra {
+		merged[name] = id
+	}
+	return merged
+}
+
+func initCurveMap() {
+	curveMap = buildCurveMap(curveMapExtra)
+}
+
+func initCipherMap() {
+	cipherMap = make(map[string]uint16, len(tls.CipherSuites())+len(tls.InsecureCipherSuites()))
 	for _, cs := range tls.CipherSuites() {
 		cipherMap[cs.Name] = cs.ID
 	}
 	for _, cs := range tls.InsecureCipherSuites() {
 		cipherMap[cs.Name] = cs.ID
 	}
+}
+
+var baseCurveMap = map[string]tls.CurveID{
+	"P256":      tls.CurveP256,
+	"P384":      tls.CurveP384,
+	"P521":      tls.CurveP521,
+	"CurveP256": tls.CurveP256,
+	"CurveP384": tls.CurveP384,
+	"CurveP521": tls.CurveP521,
+	"X25519":    tls.X25519,
 }
 
 // Config holds all configuration values
@@ -125,17 +152,25 @@ type Connection struct {
 	IPv6         *bool     `yaml:"ipv6"`
 	Timeout      int       `yaml:"timeout"`
 	Keepalive    int       `yaml:"keepalive"`
+	HostsFirst   *bool     `yaml:"hostsfirst"`
+	HostsOnly    *bool     `yaml:"hostsonly"`
+	HostsFile    string    `yaml:"hostsfile"`
 	DNSServers   []string  `yaml:"dnsservers"`
 	TLSConfig    TLSConfig `yaml:"tlsconfig"`
 	TLSConf      *tls.Config
 }
 
+// IPRule structure
+type IPRule struct {
+	IP     string `yaml:"ip"`
+	Client string `yaml:"client"`
+	Regex  string `yaml:"regex"`
+}
+
 // WSRule structure
 type WSRule struct {
-	IP      string `yaml:"ip"`
-	Client  string `yaml:"client"`
-	Regex   string `yaml:"regex"`
-	Timeout int    `yaml:"timeout"`
+	IPRule  `yaml:",inline"`
+	Timeout int `yaml:"timeout"`
 }
 
 // Websocket structure
@@ -156,9 +191,7 @@ type FTP struct {
 
 // MitmRule structure
 type MitmRule struct {
-	IP        string    `yaml:"ip"`
-	Client    string    `yaml:"client"`
-	Regex     string    `yaml:"regex"`
+	IPRule    `yaml:",inline"`
 	TLSConfig TLSConfig `yaml:"tlsconfig"`
 	TLSConf   *tls.Config
 }
@@ -218,6 +251,19 @@ type Proxy struct {
 	LocalBasicHash string   `yaml:"LocalBasicHash"`
 }
 
+// SedRules defines a rewrite rule applied to request or response headers.
+type SedRules struct {
+	Regex  string   `yaml:"regex"`
+	Header string   `yaml:"header"`
+	Sed    []string `yaml:"sed"`
+}
+
+// Rewrite groups the header rewrite rules used by the proxy.
+type Rewrite struct {
+	RequestHeader  []SedRules `yaml:"requestheader"`
+	ResponseHeader []SedRules `yaml:"responseheader"`
+}
+
 // Schema structure
 type Schema struct {
 	PAC        PAC        `yaml:"pac"`
@@ -230,6 +276,7 @@ type Schema struct {
 	MITM       MITM       `yaml:"mitm"`
 	Wireshark  Wireshark  `yaml:"wireshark"`
 	Clamd      Clamd      `yaml:"clamd"`
+	Rewrite    Rewrite    `yaml:"rewrite"`
 }
 
 var msec bool
@@ -332,10 +379,11 @@ func setTLSConfig(readTLSConfig *TLSConfig, server bool) (*tls.Config, error) {
 	if readTLSConfig.MinVersion != "" {
 		id, ok := versionMap[readTLSConfig.MinVersion]
 		if !ok {
-			logging.Printf("WARNING", "setTLSConfig: unknown tls version for %s: %s\n", config, readTLSConfig.MinVersion)
-		} else {
-			tlsConfig.MinVersion = id
+			msg := fmt.Sprintf("setTLSConfig: unknown tls version for %s: %s", config, readTLSConfig.MinVersion)
+			logging.Printf("ERROR", "%s\n", msg)
+			return nil, errors.New(msg)
 		}
+		tlsConfig.MinVersion = id
 	} else {
 		tlsConfig.MinVersion = tls.VersionTLS12
 		logging.Printf("INFO", "setTLSConfig: set tls version for %s to TLS12\n", config)
@@ -343,20 +391,22 @@ func setTLSConfig(readTLSConfig *TLSConfig, server bool) (*tls.Config, error) {
 	if readTLSConfig.MaxVersion != "" {
 		id, ok := versionMap[readTLSConfig.MaxVersion]
 		if !ok {
-			logging.Printf("WARNING", "setTLSConfig: unknown tls version for %s: %s\n", config, readTLSConfig.MaxVersion)
-		} else {
-			tlsConfig.MaxVersion = id
+			msg := fmt.Sprintf("setTLSConfig: unknown tls version for %s: %s", config, readTLSConfig.MaxVersion)
+			logging.Printf("ERROR", "%s\n", msg)
+			return nil, errors.New(msg)
 		}
+		tlsConfig.MaxVersion = id
 	}
 	if len(readTLSConfig.CurveIDs) > 0 {
 		tlsConfig.CurvePreferences = []tls.CurveID{}
 		for _, name := range readTLSConfig.CurveIDs {
 			id, ok := curveMap[name]
 			if !ok {
-				logging.Printf("WARNING", "soretTLSConfig: unknown curve ID for %s: %s\n", config, name)
-			} else {
-				tlsConfig.CurvePreferences = append(tlsConfig.CurvePreferences, id)
+				msg := fmt.Sprintf("setTLSConfig: unknown curve ID for %s: %s", config, name)
+				logging.Printf("ERROR", "%s\n", msg)
+				return nil, errors.New(msg)
 			}
+			tlsConfig.CurvePreferences = append(tlsConfig.CurvePreferences, id)
 		}
 	}
 	if len(readTLSConfig.CipherIDs) > 0 {
@@ -364,10 +414,11 @@ func setTLSConfig(readTLSConfig *TLSConfig, server bool) (*tls.Config, error) {
 		for _, name := range readTLSConfig.CipherIDs {
 			id, ok := cipherMap[name]
 			if !ok {
-				logging.Printf("WARNING", "setTLSConfig: unknown cipher ID for %s: %s\n", config, name)
-			} else {
-				tlsConfig.CipherSuites = append(tlsConfig.CipherSuites, id)
+				msg := fmt.Sprintf("setTLSConfig: unknown cipher ID for %s: %s", config, name)
+				logging.Printf("ERROR", "%s\n", msg)
+				return nil, errors.New(msg)
 			}
+			tlsConfig.CipherSuites = append(tlsConfig.CipherSuites, id)
 		}
 	}
 	return tlsConfig, nil
@@ -548,6 +599,14 @@ func readConnectionConfig(configOut *Schema) error {
 		value := true
 		configOut.Connection.IPv6 = &value
 	}
+	if configOut.Connection.HostsFirst == nil {
+		value := true
+		configOut.Connection.HostsFirst = &value
+	}
+	if configOut.Connection.HostsOnly == nil {
+		value := false
+		configOut.Connection.HostsOnly = &value
+	}
 	if !*configOut.Connection.IPv6 && !*configOut.Connection.IPv4 {
 		logging.Printf("ERROR", "ReadConfig: Require IOV6 and/or IPV4 support\n")
 		return errors.New("require ipv6 or ipv4")
@@ -588,6 +647,20 @@ func readConnectionConfig(configOut *Schema) error {
 	if err != nil {
 		logging.Printf("ERROR", "readConnectionConfig: could not set TLS Config: %v\n", err)
 		configOut.Connection.TLSConf = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+
+	if configOut.Connection.HostsFile != "" {
+		hostsFilepath, err := filepath.Abs(configOut.Connection.HostsFile)
+		if err != nil {
+			logging.Printf("ERROR", "readConnectionConfig: Getting file %s: %v\n", configOut.Connection.HostsFile, err)
+			return err
+		}
+		configOut.Connection.HostsFile = hostsFilepath
+		_, err = os.Stat(configOut.Connection.HostsFile)
+		if errors.Is(err, os.ErrNotExist) || err != nil {
+			logging.Printf("ERROR", "readConnectionConfig: Can not read Hosts config file %s\n", configOut.Proxy.KerberosConfig)
+			return err
+		}
 	}
 
 	return nil
@@ -817,10 +890,10 @@ func readMITMConfig(watcher *fsnotify.Watcher, configOut *Schema) error {
 				if rule.TLSConfig.ServerCertfile != "" {
 					logging.Printf("WARNING", "readMITMConfig: Invalid TLS config ServerCertfile\n")
 				}
-				rule.TLSConf, err = setTLSConfig(&rule.TLSConfig, false)
+				configOut.MITM.Rules[n].TLSConf, err = setTLSConfig(&rule.TLSConfig, false)
 				if err != nil {
 					logging.Printf("ERROR", "readMITMConfig: could not set TLS Config for rule %d, set to default: %v\n", n+1, err)
-					rule.TLSConf = &tls.Config{MinVersion: tls.VersionTLS12}
+					configOut.MITM.Rules[n].TLSConf = &tls.Config{MinVersion: tls.VersionTLS12}
 				}
 			}
 
@@ -1124,7 +1197,7 @@ func openWithRetry(filename string, flag int, perm os.FileMode) (*os.File, error
 	var err error
 	var maxRetries = 10
 	var delay = 1 * time.Second
-	const ERROR_SHARING_VIOLATION syscall.Errno = 32 // Windows error code
+	const errorSharingViolation syscall.Errno = 32 // Windows error code
 
 	for i := 1; i <= maxRetries; i++ {
 		// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
@@ -1135,7 +1208,7 @@ func openWithRetry(filename string, flag int, perm os.FileMode) (*os.File, error
 
 		// Check if it's a sharing violation
 		if pe, ok := err.(*os.PathError); ok {
-			if runtime.GOOS == "windows" && pe.Err == ERROR_SHARING_VIOLATION {
+			if runtime.GOOS == "windows" && pe.Err == errorSharingViolation {
 				logging.Printf("ERROR", "openWithRetries: File %s is locked, retrying: %v\n", filename, err)
 				time.Sleep(delay)
 				continue
@@ -1258,10 +1331,10 @@ func watchFiles(watcher *fsnotify.Watcher, configOut *Schema) {
 				if rule.TLSConfig.ServerCertfile != "" {
 					logging.Printf("WARNING", "watchFiles: Invalid MITM TLS config ServerCertfile\n")
 				}
-				rule.TLSConf, err = setTLSConfig(&rule.TLSConfig, false)
+				configOut.MITM.Rules[n].TLSConf, err = setTLSConfig(&rule.TLSConfig, false)
 				if err != nil {
 					logging.Printf("ERROR", "watchFiles: could not set MITM TLS Config for rule %d, set to default: %v\n", n+1, err)
-					rule.TLSConf = &tls.Config{MinVersion: tls.VersionTLS12}
+					configOut.MITM.Rules[n].TLSConf = &tls.Config{MinVersion: tls.VersionTLS12}
 				}
 			}
 		}

@@ -1,12 +1,13 @@
+// Package protocol provides wireshark capture and protocol-analysis helpers for myproxy.
+//
+// It contains utilities for reading packet data, decoding traffic, and
+// enriching proxy sessions with protocol metadata.
 package protocol
 
 import (
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
-	"github.com/gopacket/gopacket"
-	"github.com/gopacket/gopacket/layers"
-	"github.com/gopacket/gopacket/pcapgo"
 	"myproxy/logging"
 	"myproxy/readconfig"
 	"net"
@@ -15,6 +16,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gopacket/gopacket"
+	"github.com/gopacket/gopacket/layers"
+	"github.com/gopacket/gopacket/pcapgo"
 )
 
 // Leverages Wireshark TCP connection reader
@@ -193,10 +198,8 @@ func acceptWireshark(listener net.Listener) {
 			if matchRemote {
 				logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Remote address %s matched %s\n", 0, remoteAddr, cidrStr)
 				break
-			} else {
-				logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Remote address %s did not match %s\n", 0, remoteAddr, cidrStr)
 			}
-
+			logging.Printf("DEBUG", "AcceptWireshark: SessionID:%d Remote address %s did not match %s\n", 0, remoteAddr, cidrStr)
 		}
 		if !matchRemote {
 			logging.Printf("INFO", "AcceptWireshark: SessionID:%d Did not accept connection from %s\n", 0, remoteAddr)
@@ -219,11 +222,9 @@ func acceptWireshark(listener net.Listener) {
 				}
 				_, err2 := c.Read(buf)
 				if err2 != nil {
-					if netErr, ok := err2.(net.Error); ok && netErr.Timeout() {
-						// No data, but still connected
-					} else {
+					if netErr, ok := err2.(net.Error); !ok || !netErr.Timeout() {
 						// Disconnected or other error
-						notify <- err2 // connection closed or error
+						notify <- err2
 						return
 					}
 				}

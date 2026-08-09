@@ -1,3 +1,7 @@
+// Package logging provides access-log structures and helpers for myproxy.
+//
+// It defines the record format used when writing proxy access events and
+// exposes helpers for formatting and persisting access logs.
 package logging
 
 import (

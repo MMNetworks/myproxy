@@ -1,9 +1,8 @@
+// Package httpproxy provides a customizable HTTP proxy and supporting helpers.
 package httpproxy
 
 import (
-	dns "codeberg.org/miekg/dns"
-	"codeberg.org/miekg/dns/dnshttp"
-	"codeberg.org/miekg/dns/rdata"
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -15,10 +14,15 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	dns "codeberg.org/miekg/dns"
+	"codeberg.org/miekg/dns/dnshttp"
+	"codeberg.org/miekg/dns/rdata"
 )
 
 // Proxy defines parameters for running an HTTP Proxy. It implements
@@ -142,11 +146,12 @@ func NetDial(ctx *Context, _, address string) (net.Conn, error) {
 	start := time.Now()
 	var conn net.Conn
 	var err error
+	hostsOnly := *readconfig.Config.Connection.HostsOnly
 
 	logging.Printf("DEBUG", "NetDial: SessionID:%d Connecting to address: %s\n", ctx.SessionNo, address)
 
 	// Exclude Session 0 as this would create a DoH via proxy loop
-	if len(readconfig.Config.Connection.DNSServers) > 0 && ctx.SessionNo != 0 {
+	if (len(readconfig.Config.Connection.DNSServers) > 0 || hostsOnly) && ctx.SessionNo != 0 {
 		// Custom dialer with resolver that forces the use of configured DNS servers
 		pDialer := proxyDialer{
 			resolvers:     readconfig.Config.Connection.DNSServers,
@@ -454,9 +459,70 @@ func ensureDot(name string) string {
 	return name + "."
 }
 
+func hostsFilePath() string {
+	if runtime.GOOS == "windows" {
+		return `C:\Windows\System32\drivers\etc\hosts`
+	}
+	return "/etc/hosts"
+}
+
+func resolveFromHosts(ctx *Context, hostsfile string, host string) ([]string, string, error) {
+	var file = hostsfile
+	if file == "" {
+		file = hostsFilePath()
+	}
+
+	// #nosec G304 -- path comes from trusted, access controlled configuration; not user-controlled input
+	f, err := os.OpenFile(file, os.O_RDONLY, 0600)
+	if err != nil {
+		logging.Printf("ERROR", "resolveFromHosts: SessionID:%d Error open hosts file %s: %v\n", ctx.SessionNo, file, err)
+		return nil, file, nil
+	}
+	defer f.Close()
+
+	var results []string
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Strip comments
+		if idx := strings.Index(line, "#"); idx != -1 {
+			line = line[:idx]
+		}
+
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		ip := fields[0]
+		for _, h := range fields[1:] {
+			if strings.EqualFold(h, host) {
+				results = append(results, ip)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		logging.Printf("ERROR", "resolveFromHosts: SessionID:%d Error scanning hosts file %s: %v\n", ctx.SessionNo, file, err)
+		return nil, file, nil
+	}
+
+	if len(results) == 0 {
+		return nil, file, nil
+	}
+
+	return results, file, nil
+}
+
 // Dial implements Dialer with provided resolvers
 func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, error) {
 	var mu sync.Mutex
+	var ips []string
+	var dnsServer string
+	hostsFirst := *readconfig.Config.Connection.HostsFirst
+	hostsOnly := *readconfig.Config.Connection.HostsOnly
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		logging.Printf("ERROR", "Dial: SessionID:%d Error connecting to address: %s error: %v\n", ctx.SessionNo, address, err)
@@ -472,12 +538,32 @@ func (pd *proxyDialer) Dial(ctx *Context, network, address string) (net.Conn, er
 	}
 
 	start := time.Now()
-	ips, dnsServer, err := pd.queryResolvers(ctx, host)
-	elapsed := time.Since(start)
-	if err != nil {
-		logging.Printf("ERROR", "Dial: SessionID:%d Failed to resolve host: %s resolver: %s elapsed time: %v error: %v\n", ctx.SessionNo, host, dnsServer, elapsed, err)
-		return nil, errors.New("resolve failed")
+	if hostsFirst || hostsOnly {
+		ips, dnsServer, err = resolveFromHosts(ctx, readconfig.Config.Connection.HostsFile, host)
+		if err != nil || len(ips) <= 0 {
+			logging.Printf("DEBUG", "Dial: SessionID:%d Ignore hosts resolver for host %s error: %v\n", ctx.SessionNo, host, err)
+			if !hostsOnly {
+				ips, dnsServer, err = pd.queryResolvers(ctx, host)
+				if err != nil {
+					elapsed := time.Since(start)
+					logging.Printf("ERROR", "Dial: SessionID:%d Failed to resolve host: %s resolver: %s elapsed time: %v error: %v\n", ctx.SessionNo, host, dnsServer, elapsed, err)
+					return nil, errors.New("resolve failed")
+				}
+			}
+		}
+	} else {
+		ips, dnsServer, err = pd.queryResolvers(ctx, host)
+		if err != nil || len(ips) <= 0 {
+			elapsed := time.Since(start)
+			logging.Printf("ERROR", "Dial: SessionID:%d Failed to resolve host: %s resolver: %s elapsed time: %v error: %v\n", ctx.SessionNo, host, dnsServer, elapsed, err)
+			ips, dnsServer, err = resolveFromHosts(ctx, readconfig.Config.Connection.HostsFile, host)
+			if err != nil {
+				logging.Printf("DEBUG", "Dial: SessionID:%d Ignore hosts resolver for host %s error: %v\n", ctx.SessionNo, host, err)
+				return nil, errors.New("resolve failed")
+			}
+		}
 	}
+	elapsed := time.Since(start)
 	if len(ips) <= 0 {
 		logging.Printf("DEBUG", "Dial: SessionID:%d Resolver %s resolved host %s to no ip in %v\n", ctx.SessionNo, dnsServer, host, elapsed)
 		return nil, errors.New("resolved to no IPs")
@@ -762,29 +848,22 @@ func (prx *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w2, r2 = ctx.doMitm()
 		}
 		if w2 == nil || r2 == nil {
-			if w2 == nil {
-				// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doMitm w2 == nil \n", ctx.SessionNo)
-			}
-			if r2 == nil {
-				// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doMitm r2 == nil \n", ctx.SessionNo)
-			}
 			break
 		}
 		//r.Header.Del("Accept-Encoding")
 		//r.Header.Del("Connection")
 		ctx.SubSessionNo++
-		if b, err := ctx.doRequest(w2, r2); err != nil {
+		b, err := ctx.doRequest(w2, r2)
+		if err != nil {
 			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doRequest: %t Error: %v\n", ctx.SessionNo,b,err)
 			break
-		} else {
-			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doRequest: %t\n", ctx.SessionNo,b)
-			if b {
-				if !cyclic {
-					break
-				} else {
-					continue
-				}
+		}
+		// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doRequest: %t\n", ctx.SessionNo,b)
+		if b {
+			if !cyclic {
+				break
 			}
+			continue
 		}
 		if err := ctx.doResponse(w2, r2); err != nil || !cyclic {
 			// logging.Printf("DEBUG", "ServeHTTP: SessionID:%d doResponse Error: %v\n", ctx.SessionNo,err)

@@ -4,21 +4,26 @@
 
 //go:build windows
 
+// Package service provides Windows-specific service integration for myproxy.
+//
+// It implements the Windows service entry point and helpers for installing,
+// starting, and controlling the proxy as a Windows service.
 package service
 
 import (
 	"bufio"
 	"flag"
 	"fmt"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
-	"golang.org/x/term"
 	"log"
 	"myproxy/logging"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
+	"golang.org/x/term"
 )
 
 var svcName = "myproxy"
@@ -34,7 +39,7 @@ func Service(args []string) {
 
 	if len(args) == 0 {
 		log.Printf("ERROR: Service: missing argument list\n")
-		os.Exit(1)
+		return
 	}
 	CommandLine := flag.NewFlagSet("Service", flag.ExitOnError)
 
@@ -44,18 +49,19 @@ func Service(args []string) {
 	err = CommandLine.Parse(args[1:])
 	if err != nil {
 		log.Printf("ERROR: runProxy: error parsing arguments: %v\n", err)
+		return
 	}
 
 	cF, err = filepath.Abs(configFilename)
 	if err != nil {
 		log.Printf("ERROR: Service: cannot determine absolute file path of configuration file: %s\n", configFilename)
-		os.Exit(1)
+		return
 	}
 	fS, err = os.Stat(cF)
 	if err == nil {
 		if fS.Mode().IsDir() {
 			log.Printf("ERROR: Service: configuration file %s is a directory\n", configFilename)
-			os.Exit(1)
+			return
 		}
 	}
 	configFilename = cF

@@ -1,5 +1,8 @@
 //go:build go1.26
 
+// Package readconfig provides TLS curve and cipher configuration helpers for myproxy.
+//
+// It extends the base TLS curve mappings with Go 1.26-specific curve names.
 package readconfig
 
 import (

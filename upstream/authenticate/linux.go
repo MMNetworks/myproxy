@@ -1,23 +1,28 @@
 //go:build !windows
 
+// Package authenticate provides upstream proxy authentication helpers for myproxy.
+//
+// It implements authentication flows for Unix-like systems, including NTLM and
+// Negotiate-based auth handshakes against upstream proxies.
 package authenticate
 
 import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	httpproxy "myproxy/http-proxy"
+	"myproxy/logging"
+	"myproxy/readconfig"
+	"net"
+	"net/http"
+	"strings"
+
 	"github.com/Azure/go-ntlmssp"
 	"github.com/jcmturner/gokrb5/v8/client"
 	"github.com/jcmturner/gokrb5/v8/config"
 	"github.com/jcmturner/gokrb5/v8/credentials"
 	"github.com/jcmturner/gokrb5/v8/krberror"
 	"github.com/jcmturner/gokrb5/v8/spnego"
-	"myproxy/http-proxy"
-	"myproxy/logging"
-	"myproxy/readconfig"
-	"net"
-	"net/http"
-	"strings"
 )
 
 func doNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
@@ -128,7 +133,7 @@ func doNegotiateProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.
 		var krbCCache *credentials.CCache
 		krbCCache, err = credentials.LoadCCache(krbCredentialCache)
 		if err != nil {
-			logging.Printf("ERROR", "doNegotiateProxyAuth: SessionID:%d Cloud not load cache: %v\n", ctx.SessionNo, err)
+			logging.Printf("ERROR", "doNegotiateProxyAuth: SessionID:%d Could not load cache: %v\n", ctx.SessionNo, err)
 		} else {
 			krbClient, err = client.NewFromCCache(krbCCache, krbConfig, client.DisablePAFXFAST(true))
 		}

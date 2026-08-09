@@ -1,24 +1,29 @@
 //go:build windows
 
+// Package authenticate provides upstream proxy authentication helpers for myproxy.
+//
+// It implements Windows-specific authentication flows for NTLM and other
+// upstream proxy auth mechanisms.
 package authenticate
 
 import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/alexbrainman/sspi/negotiate"
-	"github.com/alexbrainman/sspi/ntlm"
 	"io"
-	"myproxy/http-proxy"
+	httpproxy "myproxy/http-proxy"
 	"myproxy/logging"
 	"myproxy/readconfig"
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/alexbrainman/sspi/negotiate"
+	"github.com/alexbrainman/sspi/ntlm"
 	// "github.com/yassinebenaid/godump"
 )
 
-func doNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, auth string) error {
+func doNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Response, _ string) error {
 	logging.Printf("TRACE", "%s: SessionID:%d called\n", logging.GetFunctionName(), ctx.SessionNo)
 	// NTLM Step 1: Send Negotiate Message
 	sspiCred, err := ntlm.AcquireCurrentUserCredentials()
@@ -85,13 +90,13 @@ func doNTLMProxyAuth(ctx *httpproxy.Context, req *http.Request, resp *http.Respo
 	if ntlmResp == nil {
 		logging.Printf("ERROR", "doNTLMProxyAuth: SessionID:%d NTLM Authentication failed. %v\n", ctx.SessionNo, err)
 		return errors.New("empty response received")
-	} else if ntlmResp.StatusCode == http.StatusProxyAuthRequired {
+	}
+	if ntlmResp.StatusCode == http.StatusProxyAuthRequired {
 		logging.Printf("ERROR", "doNTLMProxyAuth: SessionID:%d NTLM Authentication failed\n", ctx.SessionNo)
 		overwriteResponse(ctx, resp, ntlmResp)
 		return errors.New("no NTLM OK received")
-	} else {
-		logging.Printf("DEBUG", "doNTLMProxyAuth: SessionID:%d NTLM Authentication result %d\n", ctx.SessionNo, ntlmResp.StatusCode)
 	}
+	logging.Printf("DEBUG", "doNTLMProxyAuth: SessionID:%d NTLM Authentication result %d\n", ctx.SessionNo, ntlmResp.StatusCode)
 
 	overwriteResponse(ctx, resp, ntlmResp)
 	logging.Printf("DEBUG", "doNTLMProxyAuth: SessionID:%d Auth done\n", ctx.SessionNo)

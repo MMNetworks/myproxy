@@ -1,11 +1,9 @@
-/*
-Package httpproxy provides a customizable HTTP proxy;
-supports HTTP, HTTPS through CONNECT. And also provides HTTPS connection
-using "Man in the Middle" style attack.
-
-It's easy to use. `httpproxy.Proxy` implements `Handler` interface of `net/http`
-package to offer `http.ListenAndServe` function.
-*/
+// Package httpproxy provides a customizable HTTP proxy;
+// supports HTTP, HTTPS through CONNECT. And also provides HTTPS connection
+// using "Man in the Middle" style attack.
+//
+// It's easy to use. `httpproxy.Proxy` implements `Handler` interface of `net/http`
+// package to offer `http.ListenAndServe` function.
 package httpproxy
 
 // ConnectAction specifies action of after the CONNECT.

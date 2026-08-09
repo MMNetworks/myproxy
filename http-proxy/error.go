@@ -1,5 +1,6 @@
 //go:build !windows
 
+// Package httpproxy provides a customizable HTTP proxy and supporting helpers.
 package httpproxy
 
 import (

@@ -1,3 +1,4 @@
+// Package httpproxy provides a customizable HTTP proxy and supporting helpers.
 package httpproxy
 
 import (
@@ -7,7 +8,9 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+
 	"github.com/secsy/goftp"
+
 	//        "github.com/dutchcoders/go-clamd"
 	"errors"
 	"io"
@@ -20,6 +23,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -103,9 +107,161 @@ type Context struct {
 	hijTLSReader *bufio.Reader
 }
 
+// Request identifies an HTTP request phase in the proxy lifecycle.
+const (
+	Request string = "request"
+	// Response identifies an HTTP response phase in the proxy lifecycle.
+	Response string = "response"
+)
+
 // GetTCPState interface
 func (ctx *Context) GetTCPState() *protocol.TCPStruct {
 	return ctx.TCPState
+}
+
+func splitTwo(s string) (string, string, bool, error) {
+	var global bool
+	if len(s) == 0 {
+		return "", "", false, errors.New("empty string")
+	}
+
+	sep := string(s[0]) // first character as separator
+	if strings.HasSuffix(s, sep+"g") {
+		global = true
+		s = s[:len(s)-2]
+	}
+	clean := strings.Trim(s, sep) // trim leading/trailing separators
+
+	parts := strings.Split(clean, sep)
+
+	if len(parts) != 2 {
+		if len(parts) == 1 && strings.HasSuffix(s, "//") {
+			return parts[0], "", global, nil
+		}
+		return "", "", false, fmt.Errorf("invalid sed expression. require only 2 parts, got %d", len(parts))
+	}
+
+	return parts[0], parts[1], global, nil
+}
+
+func sedOnHeader(ctx *Context, sed string, value string) string {
+	localSed := sed
+	if value == "" {
+		if strings.HasPrefix(sed, "//") {
+			localSed = strings.Replace(sed, "//", "/^/", 1)
+		} else {
+			logging.Printf("ERROR", "sedOnHeader: SessionID:%d Regex %s must start with //\n", ctx.SessionNo, sed)
+			return value
+		}
+	}
+	regex, replace, global, err := splitTwo(localSed)
+	if err != nil {
+		logging.Printf("ERROR", "sedOnHeader: SessionID:%d Invalid regex: %s error: %v\n", ctx.SessionNo, sed, err)
+		return value
+	}
+
+	re, err := regexp.Compile(regex)
+	if err != nil {
+		logging.Printf("ERROR", "sedOnHeader: SessionID:%d Invalid regex: %s error: %v\n", ctx.SessionNo, sed, err)
+		return value
+	}
+	if global {
+		out := re.ReplaceAllString(value, replace)
+		return strings.TrimSpace(out)
+	}
+
+	loc := re.FindStringSubmatchIndex(value)
+	if loc == nil {
+		logging.Printf("DEBUG", "sedOnHeader: SessionID:%d No match found for %s\n", ctx.SessionNo, sed)
+		return value
+	}
+	repl1 := re.ExpandString(nil, replace, value, loc)
+	out := value[:loc[0]] + string(repl1) + value[loc[1]:]
+	return strings.TrimSpace(out)
+
+}
+
+func rewriteHeader(ctx *Context, header http.Header, hType string) http.Header {
+	uri := ctx.Req.URL.String()
+	uriRedacted := CleanUntrustedString(ctx, "URL Redacted", ctx.Req.URL.Redacted())
+	var rewriteRules []readconfig.SedRules
+	// Match URL against regex
+	switch hType {
+	case Request:
+		rewriteRules = readconfig.Config.Rewrite.RequestHeader
+	case Response:
+		rewriteRules = readconfig.Config.Rewrite.ResponseHeader
+	}
+	for _, rule := range rewriteRules {
+		matchURI, err := regexp.MatchString(rule.Regex, uri)
+		if err != nil {
+			logging.Printf("ERROR", "rewriteHeader: SessionID:%d Invalid regex: %s error: %v\n", ctx.SessionNo, rule.Regex, err)
+			return header
+		}
+		if matchURI {
+			logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Matched URI: %s\n", ctx.SessionNo, uriRedacted)
+			for k := range header {
+				if strings.EqualFold(k, rule.Header) {
+					logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Rewrite %s header: %s.\n", ctx.SessionNo, hType, k)
+					vals := header.Values(k)
+					newvals := make([]string, 0, len(vals))
+					for i := 0; i < len(vals); i++ {
+						newValue := vals[i]
+						for _, sed := range rule.Sed {
+							logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Apply sed rule: %s to %s.\n", ctx.SessionNo, sed, newValue)
+							newValue = strings.TrimSpace(sedOnHeader(ctx, sed, newValue))
+						}
+						if newValue == strings.TrimSpace(vals[i]) {
+							logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Header %s:%s left unchanged\n", ctx.SessionNo, k, newValue)
+							newvals = append(newvals, newValue)
+						} else {
+							var empty = regexp.MustCompile(`^[ \t,]*$`)
+
+							if empty.MatchString(newValue) {
+								logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Header %s:%s deleted\n", ctx.SessionNo, k, vals[i])
+							} else {
+								logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Header %s:%s changed to %s\n", ctx.SessionNo, k, vals[i], newValue)
+								if newValue != "" {
+									newvals = append(newvals, newValue)
+								}
+							}
+						}
+					}
+					if len(newvals) == 0 {
+						header.Del(k)
+					} else {
+						header[k] = newvals
+					}
+					// break
+					// return header
+				}
+			}
+			for _, sed := range rule.Sed {
+				// To add sed needs to start with empty pattern
+				if strings.HasPrefix(sed, "//") {
+					logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Adding new %s headers\n", ctx.SessionNo, hType)
+					break
+				}
+			}
+			newValue := ""
+			for _, sed := range rule.Sed {
+				// To add sed needs to start with empty pattern
+				if strings.HasPrefix(sed, "//") {
+					logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Apply sed rule: %s.\n", ctx.SessionNo, sed)
+					newValue = sedOnHeader(ctx, sed, newValue)
+					if newValue == "" {
+						logging.Printf("DEBUG", "rewriteHeader: SessionID:%d No header %s added\n", ctx.SessionNo, rule.Header)
+					} else {
+						logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Header %s: %s added\n", ctx.SessionNo, rule.Header, newValue)
+						header.Add(rule.Header, newValue)
+					}
+				}
+			}
+			// return header
+		}
+	}
+	logging.Printf("DEBUG", "rewriteHeader: SessionID:%d Finished processing header for URI: %s\n", ctx.SessionNo, uriRedacted)
+	return header
 }
 
 func (ctx *Context) onAccept(w http.ResponseWriter, r *http.Request) bool {
@@ -320,6 +476,9 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 		*reqSend.URL = *r.URL
 		reqSend.URL.Scheme = "http"
 	}
+	// Modify Request Header
+	newHeader := rewriteHeader(ctx, r.Header, Request)
+	logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d New Request Header %v\n", ctx.SessionNo, newHeader)
 	requestDump, err := httputil.DumpRequestOut(reqSend, true)
 	if err != nil {
 		logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
@@ -406,7 +565,9 @@ func (ctx *Context) doFtpUpstream(w http.ResponseWriter, r *http.Request) (bool,
 	ctx.AccessLog.Status = CleanUntrustedString(ctx, "Status", resp.Status)
 	resp.Request = r
 	resp.TransferEncoding = nil
-
+	// Modify Response Header
+	newHeader = rewriteHeader(ctx, resp.Header, Response)
+	logging.Printf("DEBUG", "doFtpUpstream: SessionID:%d New Response Header %v\n", ctx.SessionNo, newHeader)
 	responseDump, err := httputil.DumpResponse(resp, true)
 	if err != nil {
 		logging.Printf("ERROR", "doFtpUpstream: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)
@@ -529,6 +690,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 		*reqSend.URL = *r.URL
 		reqSend.URL.Scheme = "http"
 	}
+	// Modify Request Header
+	newHeader := rewriteHeader(ctx, r.Header, Request)
+	logging.Printf("DEBUG", "doFtp: SessionID:%d New Request Header %v\n", ctx.SessionNo, newHeader)
 	requestDump, err := httputil.DumpRequestOut(reqSend, true)
 	if err != nil {
 		logging.Printf("ERROR", "doFtp: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
@@ -809,6 +973,9 @@ func (ctx *Context) doFtp(w http.ResponseWriter, r *http.Request) (bool, error) 
 			bodyReadCloser = io.NopCloser(bytes.NewBuffer(body))
 			bodyContentLength = int64(len(body))
 		}
+		// Modify Response Header
+		newHeader := rewriteHeader(ctx, respHeader, Response)
+		logging.Printf("DEBUG", "doFtp: SessionID:%d New Response Header %v\n", ctx.SessionNo, newHeader)
 		resp := &http.Response{
 			Status:        fmt.Sprintf("%d%s", respCode, st),
 			StatusCode:    respCode,
@@ -978,8 +1145,11 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			return
 		}
 		remoteConn := conn.(*net.TCPConn)
-		if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
-			_, err2 := hijConn.Write([]byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+
+		responseBytes := []byte("HTTP/1.1 200 OK\r\n\r\n")
+		if _, err := hijConn.Write(responseBytes); err != nil {
+			responseBytes := []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n")
+			_, err2 := hijConn.Write(responseBytes)
 			if err2 != nil {
 				logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Client %v\n", ctx.SessionNo, err2)
 			}
@@ -997,7 +1167,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			}
 			src := ctx.AccessLog.ProxyIP
 			dst := ctx.AccessLog.SourceIP
-			err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 500 Can't connect to host\r\n\r\n"))
+			err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, responseBytes)
 			if err != nil {
 				logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 			}
@@ -1007,8 +1177,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		src := ctx.AccessLog.ProxyIP
 		dst := ctx.AccessLog.SourceIP
 		ctx.AccessLog.DestinationIP = remoteConn.RemoteAddr().String()
-
-		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, src, dst, responseBytes)
 		if err != nil {
 			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark %v\n", ctx.SessionNo, err)
 		}
@@ -1338,7 +1507,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}()
 		wg.Wait()
 
-		logging.Printf("INFO", "doConnect: SessionID:%d Websocket identified in traffic: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
+		logging.Printf("INFO", "doConnect: SessionID:%d Websocket in traffic: %t\n", ctx.SessionNo, ctx.WebsocketState.Websocket)
 		ctx.WebsocketState.Websocket = false
 		_ = hijConn.Close()
 		_ = remoteConn.Close()
@@ -1366,7 +1535,9 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 			return
 		}
 		tlsConfig.Certificates = append(tlsConfig.Certificates, *cert)
-		if _, err := hijConn.Write([]byte("HTTP/1.1 200 OK\r\n\r\n")); err != nil {
+
+		responseBytes := []byte("HTTP/1.1 200 OK\r\n\r\n")
+		if _, err := hijConn.Write(responseBytes); err != nil {
 			_ = hijConn.Close()
 			if !isConnectionClosed(err) {
 				ctx.doError("Connect", ErrResponseWrite, err)
@@ -1383,7 +1554,7 @@ func (ctx *Context) doConnect(w http.ResponseWriter, r *http.Request) (b bool) {
 		}
 		dst := ctx.AccessLog.ProxyIP
 		src := ctx.AccessLog.SourceIP
-		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, []byte("HTTP/1.1 200 OK\r\n\r\n"))
+		err = protocol.WriteWireshark(ctx, false, ctx.SessionNo, dst, src, responseBytes)
 		if err != nil {
 			logging.Printf("ERROR", "doConnect: SessionID:%d Could not write to Wireshark: %v\n", ctx.SessionNo, err)
 		}
@@ -1715,6 +1886,9 @@ func (ctx *Context) doRequest(w http.ResponseWriter, r *http.Request) (bool, err
 		logging.Printf("INFO", "doRequest: SessionID:%d Client requested websocket upgrade: Upgrade websocket\n", ctx.SessionNo)
 	}
 
+	// Modify Request Header
+	newHeader := rewriteHeader(ctx, r.Header, Request)
+	logging.Printf("DEBUG", "doRequest: SessionID:%d New Request Header %v\n", ctx.SessionNo, newHeader)
 	requestDump, err := httputil.DumpRequestOut(r, true)
 	if err != nil {
 		logging.Printf("ERROR", "doRequest: SessionID:%d Could not create request dump: %v\n", ctx.SessionNo, err)
@@ -1854,11 +2028,14 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		bodySize = 0
 	} else {
 		logging.Printf("DEBUG", "doResponse: SessionID:%d Call RoundTrip\n", ctx.SessionNo)
-		resp, err = ctx.Rt.RoundTrip(r)
+		transportRt := ctx.Rt.(*http.Transport)
+		transportRt.TLSClientConfig = ctx.TLSConfig
+		resp, err = transportRt.RoundTrip(r)
 		if err != nil {
 			if strings.Contains(err.Error(), "HTTP_1_1_REQUIRED") || strings.Contains(err.Error(), "http2") {
 				logging.Printf("INFO", "doResponse: SessionID:%d Retrying with HTTP/1.1\n", ctx.SessionNo)
 				transportRt := ctx.Rt.(*http.Transport)
+				transportRt.TLSClientConfig = ctx.TLSConfig
 				transportRt.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
 				resp, err = transportRt.RoundTrip(r)
 			}
@@ -1908,6 +2085,9 @@ func (ctx *Context) doResponse(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	// Modify Response Header
+	newHeader := rewriteHeader(ctx, resp.Header, Response)
+	logging.Printf("DEBUG", "doResponse: SessionID:%d New Response Header %v\n", ctx.SessionNo, newHeader)
 	responseDump, err := httputil.DumpResponse(resp, true)
 	if err != nil {
 		logging.Printf("ERROR", "doResponse: SessionID:%d Could not create response dump: %v\n", ctx.SessionNo, err)

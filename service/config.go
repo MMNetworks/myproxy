@@ -2,4 +2,4 @@
 package service
 
 // Version holds myproxy version
-const Version = "3.5.0"
+const Version = "4.0.0"
