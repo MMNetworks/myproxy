@@ -199,7 +199,7 @@ func analyseAsTLSPacket(SessionNo int64, packet []byte) (string, error) {
 	}
 	logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d TLS handshake record length: %d\n", SessionNo, recordLength)
 	if !packetMessage.ReadBytes(&message, int(recordLength)) {
-		logging.Printf("DEBUG", "analyseAsTLSPacketResponse: SessionID:%d Could not read full TLS handshake message\n", SessionNo)
+		logging.Printf("DEBUG", "analyseAsTLSPacket: SessionID:%d Could not read full TLS handshake message\n", SessionNo)
 		goto END
 	}
 	handshakeMessage = cryptobyte.String(message)
